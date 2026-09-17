@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Exit region editor — InsightEye</title>
+<style>
+  :root {
+    --bg: #10131a;
+    --panel: #181d27;
+    --panel-2: #1f2532;
+    --line: #2c3442;
+    --text: #e6eaf2;
+    --muted: #9aa5b8;
+    --accent: #ffbe00;
+    --ok: #50c878;
+    --bad: #eb3c3c;
+    --warn: #ff9f1a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  h1 { font-size: 15px; margin: 0 16px 0 0; font-weight: 600; letter-spacing: .2px; }
+  h1 small { color: var(--muted); font-weight: 400; }
+  label { color: var(--muted); font-size: 12px; margin-right: 6px; }
+  select, input {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 9px;
+    font: inherit;
+    font-size: 13px;
+  }
+  input::placeholder { color: #66708a; }
+  button {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: #46516a; background: #252c3b; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #191308;
+    font-weight: 600;
+  }
+  button.primary:hover:not(:disabled) { background: #ffd24d; border-color: #ffd24d; }
+  main { display: flex; flex-wrap: wrap; gap: 18px; padding: 18px; align-items: flex-start; }
+  #stage {
+    position: relative;
+    flex: 1 1 640px;
+    min-width: 320px;
+    background: #000;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    line-height: 0;
+  }
+  #frame { width: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+  #canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  #canvas.dragging { cursor: grabbing; }
+  aside {
+    flex: 0 1 320px;
+    min-width: 280px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+  }
+  aside h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+  aside h2:not(:first-child) { margin-top: 22px; }
+  .hint { color: var(--muted); font-size: 12.5px; }
+  .hint kbd {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-size: 11px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+  }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
+  .row + .row { border-top: 1px solid #232a37; }
+  .row span:first-child { color: var(--muted); }
+  .row span:last-child { font-variant-numeric: tabular-nums; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  #status {
+    margin-top: 14px;
+    padding: 9px 11px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    min-height: 38px;
+  }
+  #status.ok { border-color: #2c6b45; background: #16281e; color: #9fe3b8; }
+  #status.bad { border-color: #7a2b2b; background: #2a1717; color: #f3aeae; }
+  #status.busy { color: var(--muted); }
+  .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .3px;
+  }
+  .badge.CLEAR { background: #16351f; color: var(--ok); }
+  .badge.PARTIAL { background: #3a2a10; color: var(--warn); }
+  .badge.FULL { background: #351616; color: var(--bad); }
+  .badge.UNKNOWN { background: #262c38; color: var(--muted); }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
+  #coords {
+    margin-top: 8px;
+    max-height: 132px;
+    overflow: auto;
+    color: var(--muted);
+    background: #0d1017;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+    white-space: pre;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Exit region editor <small>InsightEye</small></h1>
+  <div>
+    <label for="camera">Camera</label>
+    <select id="camera"></select>
+  </div>
+  <div>
+    <label for="apikey">API key</label>
+    <input id="apikey" type="password" placeholder="only if API_KEY is set" size="18" />
+  </div>
+  <button id="reload">Reload frame</button>
+</header>
+
+<main>
+  <div id="stage">
+    <img id="frame" alt="Camera frame to draw the exit region on" />
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <aside>
+    <h2>How to draw</h2>
+    <p class="hint">
+      Click the corners of the doorway. Drag a point to adjust it.
+      <kbd>Right-click</kbd> or <kbd>Ctrl</kbd>+<kbd>Z</kbd> removes the last point,
+      <kbd>Esc</kbd> clears everything. Three points minimum.
+    </p>
+
+    <h2>Region</h2>
+    <div class="row"><span>Points</span><span id="pointCount">0</span></div>
+    <div class="row"><span>Frame</span><span id="frameSize">—</span></div>
+    <div class="row"><span>Covers</span><span id="areaPct">—</span></div>
+    <div id="coords">no points yet</div>
+
+    <div class="actions">
+      <button id="save" class="primary" disabled>Save region</button>
+      <button id="undo" disabled>Undo</button>
+      <button id="clear" disabled>Clear</button>
+      <button id="full">Full frame</button>
+    </div>
+
+    <h2>Live verdict</h2>
+    <div class="row"><span>State</span><span id="liveState" class="badge UNKNOWN">—</span></div>
+    <div class="row"><span>Accessible</span><span id="liveAccess">—</span></div>
+    <div class="row"><span>Blocking</span><span id="liveObjects">—</span></div>
+
+    <div id="status">Loading cameras…</div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+// The API is same-origin, so a relative prefix works whether this page is
+// reached directly or through a reverse proxy.
+const API = "/api/v1";
+
+const el = (id) => document.getElementById(id);
+const frameImg = el("frame");
+const canvas = el("canvas");
+const ctx = canvas.getContext("2d");
+
+let cameraId = null;
+// Points are always stored in FRAME pixels, never display pixels. The image is
+// responsive, so anything measured against its on-screen size would change
+// meaning the moment the window is resized.
+let points = [];
+let frameW = 0;
+let frameH = 0;
+let dragIndex = -1;
+let liveTimer = null;
+
+/* ---------------------------------------------------------------- helpers */
+
+function apiKey() {
+  return el("apikey").value.trim();
+}
+
+function headers(extra) {
+  const h = Object.assign({}, extra || {});
+  const key = apiKey();
+  if (key) h["X-API-Key"] = key;
+  return h;
+}
+
+async function api(path, options) {
+  const opts = Object.assign({}, options || {});
+  opts.headers = headers(opts.headers);
+  const response = await fetch(API + path, opts);
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = await response.json();
+      detail = body.message || (body.detail && JSON.stringify(body.detail)) || detail;
+    } catch (_) { /* non-JSON error body */ }
+    throw new Error(detail);
+  }
+  return response;
+}
+
+function say(message, kind) {
+  const box = el("status");
+  box.textContent = message;
+  box.className = kind || "";
+}
+
+/* ------------------------------------------------------------ frame loading */
+
+async function loadCameras() {
+  try {
+    const cameras = await (await api("/cameras")).json();
+    const select = el("camera");
+    select.innerHTML = "";
+    if (!cameras.length) {
+      say("No cameras registered yet. Create one first (POST /api/v1/cameras).", "bad");
+      return;
+    }
+    for (const camera of cameras) {
+      const option = document.createElement("option");
+      option.value = camera.id;
+      option.textContent = camera.location
+        ? camera.name + " — " + camera.location
+        : camera.name;
+      select.appendChild(option);
+    }
+    const requested = new URLSearchParams(location.search).get("camera_id");
+    if (requested && cameras.some((c) => String(c.id) === requested)) {
+      select.value = requested;
+    }
+    await selectCamera(Number(select.value));
+  } catch (error) {
+    say("Could not list cameras: " + error.message, "bad");
+  }
+}
+
+async function selectCamera(id) {
+  cameraId = id;
+  points = [];
+  const url = new URL(location.href);
+  url.searchParams.set("camera_id", String(id));
+  history.replaceState(null, "", url);
+  await loadFrame();
+  await loadExistingPolygon();
+  refresh();
+  startLivePolling();
+}
+
+async function loadFrame() {
+  say("Fetching a frame…", "busy");
+  try {
+    const response = await api("/cameras/" + cameraId + "/calibration-frame");
+    // The server reports the exact capture dimensions; trust those over
+    // naturalWidth so a browser that rescales a large JPEG cannot skew the maths.
+    frameW = Number(response.headers.get("X-Frame-Width")) || 0;
+    frameH = Number(response.headers.get("X-Frame-Height")) || 0;
+    const blob = await response.blob();
+    if (frameImg.dataset.objectUrl) URL.revokeObjectURL(frameImg.dataset.objectUrl);
+    const objectUrl = URL.createObjectURL(blob);
+    frameImg.dataset.objectUrl = objectUrl;
+    await new Promise((resolve, reject) => {
+      frameImg.onload = resolve;
+      frameImg.onerror = () => reject(new Error("frame could not be decoded"));
+      frameImg.src = objectUrl;
+    });
+    if (!frameW || !frameH) {
+      frameW = frameImg.naturalWidth;
+      frameH = frameImg.naturalHeight;
+    }
+    el("frameSize").textContent = frameW + " × " + frameH;
+    say("Click the corners of the doorway.");
+  } catch (error) {
+    say("Could not fetch a frame: " + error.message, "bad");
+  }
+  resizeCanvas();
+}
+
+async function loadExistingPolygon() {
+  try {
+    const camera = await (await api("/cameras/" + cameraId)).json();
+    if (camera.door_polygon && camera.door_polygon.length >= 3 && frameW && frameH) {
+      // Stored normalized; bring it back into frame pixels to edit.
+      points = camera.door_polygon.map((p) => [p[0] * frameW, p[1] * frameH]);
+      say("Loaded the saved region — adjust it or draw a new one.");
+    }
+  } catch (_) { /* a camera with no polygon yet is the normal case */ }
+}
+
+/* ------------------------------------------------------------- coordinates */
+
+function resizeCanvas() {
+  // Match the canvas backing store to the displayed size (accounting for DPR)
+  // so lines stay crisp; drawing converts from frame pixels each time.
+  const rect = frameImg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+
+function toFrame(event) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = frameW / rect.width;
+  const scaleY = frameH / rect.height;
+  return [
+    Math.max(0, Math.min(frameW, (event.clientX - rect.left) * scaleX)),
+    Math.max(0, Math.min(frameH, (event.clientY - rect.top) * scaleY)),
+  ];
+}
+
+function toDisplay(point) {
+  const rect = canvas.getBoundingClientRect();
+  return [point[0] * (rect.width / frameW), point[1] * (rect.height / frameH)];
+}
+
+function nearestPoint(frameXY, tolerancePx) {
+  let best = -1;
+  let bestDistance = Infinity;
+  points.forEach((point, index) => {
+    const distance = Math.hypot(point[0] - frameXY[0], point[1] - frameXY[1]);
+    if (distance < bestDistance) { bestDistance = distance; best = index; }
+  });
+  return bestDistance <= tolerancePx ? best : -1;
+}
+
+/* ------------------------------------------------------------------ drawing */
+
+function draw() {
+  const rect = canvas.getBoundingClientRect();
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  if (!points.length || !frameW) return;
+
+  const display = points.map(toDisplay);
+
+  ctx.beginPath();
+  ctx.moveTo(display[0][0], display[0][1]);
+  for (let i = 1; i < display.length; i++) ctx.lineTo(display[i][0], display[i][1]);
+  if (display.length >= 3) {
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255, 190, 0, 0.20)";
+    ctx.fill();
+  }
+  ctx.strokeStyle = "#ffbe00";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  display.forEach((point, index) => {
+    ctx.beginPath();
+    ctx.arc(point[0], point[1], 6, 0, Math.PI * 2);
+    ctx.fillStyle = index === dragIndex ? "#ffbe00" : "#ffffff";
+    ctx.fill();
+    ctx.strokeStyle = "#ffbe00";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "#10131a";
+    ctx.font = "600 10px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(String(index + 1), point[0], point[1]);
+  });
+}
+
+function polygonAreaPct() {
+  if (points.length < 3 || !frameW || !frameH) return null;
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i];
+    const [x2, y2] = points[(i + 1) % points.length];
+    area += x1 * y2 - x2 * y1;
+  }
+  return (Math.abs(area / 2) / (frameW * frameH)) * 100;
+}
+
+function refresh() {
+  el("pointCount").textContent = String(points.length);
+  const area = polygonAreaPct();
+  el("areaPct").textContent = area === null ? "—" : area.toFixed(1) + "% of frame";
+  el("coords").textContent = points.length
+    ? points
+        .map((p, i) =>
+          (i + 1) + ":  " + Math.round(p[0]) + ", " + Math.round(p[1]) +
+          "   →  " + (p[0] / frameW).toFixed(4) + ", " + (p[1] / frameH).toFixed(4))
+        .join("\n")
+    : "no points yet";
+  el("save").disabled = points.length < 3;
+  el("undo").disabled = points.length === 0;
+  el("clear").disabled = points.length === 0;
+  draw();
+}
+
+/* ------------------------------------------------------------- interactions */
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || !frameW) return;
+  const frameXY = toFrame(event);
+  const rect = canvas.getBoundingClientRect();
+  // 10 display pixels of grab tolerance, expressed in frame pixels.
+  const tolerance = 10 * (frameW / rect.width);
+  const hit = nearestPoint(frameXY, tolerance);
+  if (hit >= 0) {
+    dragIndex = hit;
+    canvas.classList.add("dragging");
+    canvas.setPointerCapture(event.pointerId);
+  } else {
+    points.push(frameXY);
+  }
+  refresh();
+});
+
+canvas.addEventListener("pointermove", (event) => {
+  if (dragIndex < 0) return;
+  points[dragIndex] = toFrame(event);
+  refresh();
+});
+
+function endDrag(event) {
+  if (dragIndex < 0) return;
+  dragIndex = -1;
+  canvas.classList.remove("dragging");
+  if (event && event.pointerId !== undefined && canvas.hasPointerCapture(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+  refresh();
+}
+canvas.addEventListener("pointerup", endDrag);
+canvas.addEventListener("pointercancel", endDrag);
+
+canvas.addEventListener("contextmenu", (event) => {
+  event.preventDefault();
+  points.pop();
+  refresh();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.target.tagName === "INPUT" || event.target.tagName === "SELECT") return;
+  if (event.key === "Escape") { points = []; refresh(); }
+  else if (event.key.toLowerCase() === "z" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    points.pop();
+    refresh();
+  }
+});
+
+window.addEventListener("resize", resizeCanvas);
+frameImg.addEventListener("load", resizeCanvas);
+
+el("undo").addEventListener("click", () => { points.pop(); refresh(); });
+el("clear").addEventListener("click", () => { points = []; refresh(); });
+el("full").addEventListener("click", () => {
+  if (!frameW) return;
+  points = [[0, 0], [frameW, 0], [frameW, frameH], [0, frameH]];
+  refresh();
+});
+el("reload").addEventListener("click", async () => { await loadFrame(); refresh(); });
+el("camera").addEventListener("change", (event) => selectCamera(Number(event.target.value)));
+el("apikey").addEventListener("change", () => {
+  sessionStorage.setItem("insighteye_api_key", apiKey());
+  loadCameras();
+});
+
+/* --------------------------------------------------------------------- save */
+
+el("save").addEventListener("click", async () => {
+  if (points.length < 3) return;
+  el("save").disabled = true;
+  say("Saving…", "busy");
+  try {
+    // Pixels plus the frame size they were drawn on — the server normalizes,
+    // so the client never has to get the conversion right.
+    await api("/cameras/" + cameraId + "/door-polygon", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        door_polygon: points.map((p) => [Math.round(p[0]), Math.round(p[1])]),
+        frame_width: frameW,
+        frame_height: frameH,
+      }),
+    });
+    say("Saved. The running worker picked up the new region immediately.", "ok");
+    pollLive();
+  } catch (error) {
+    say("Save failed: " + error.message, "bad");
+  }
+  el("save").disabled = points.length < 3;
+});
+
+/* -------------------------------------------------------------- live status */
+
+async function pollLive() {
+  if (!cameraId) return;
+  try {
+    const response = await fetch(API + "/monitoring/" + cameraId + "/status", {
+      headers: headers(),
+    });
+    if (!response.ok) throw new Error("not monitored");
+    const status = await response.json();
+    const badge = el("liveState");
+    badge.textContent = status.state;
+    badge.className = "badge " + status.state;
+    el("liveAccess").textContent = status.accessibility_pct.toFixed(1) + "%";
+    el("liveObjects").textContent = status.blocking_objects.length
+      ? status.blocking_objects.map((o) => o.label).join(", ")
+      : "nothing";
+  } catch (_) {
+    el("liveState").textContent = "not monitored";
+    el("liveState").className = "badge UNKNOWN";
+    el("liveAccess").textContent = "—";
+    el("liveObjects").textContent = "—";
+  }
+}
+
+function startLivePolling() {
+  if (liveTimer) clearInterval(liveTimer);
+  pollLive();
+  liveTimer = setInterval(pollLive, 2000);
+}
+
+/* --------------------------------------------------------------------- boot */
+
+const savedKey = sessionStorage.getItem("insighteye_api_key");
+if (savedKey) el("apikey").value = savedKey;
+loadCameras();
+</script>
+</body>
+</html>

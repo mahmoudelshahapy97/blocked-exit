@@ -1,0 +1,77 @@
+# Production counterpart of the Vite dev proxy in vite.config.js.
+#
+# Same contract: the browser only ever talks to this origin, and nginx forwards
+# /api (plus the backend's own /ui, /docs, /redoc, /openapi.json) to FastAPI.
+# Auth is bearer JWT carried by the browser itself (see src/api/client.js) --
+# nginx has no credential of its own to attach, unlike the old X-API-Key setup.
+# Keep the two files in step -- a path proxied in dev but not here is a 404 that
+# only shows up after a build.
+#
+# Rendered by envsubst at container start (see the Dockerfile), so
+# ${BE_API_URL} comes from the environment rather than being baked in.
+
+server {
+    listen       80;
+    server_name  _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    # The MJPEG live view is an unbounded response; default timeouts would cut
+    # a perfectly healthy stream after a minute.
+    proxy_http_version 1.1;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+
+    # The SPA owns its routes: /cameras/3/zone is React Router's, not a file.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Hashed asset filenames: safe to cache hard. index.html must never be
+    # cached, or a deploy leaves browsers pointing at assets that are gone.
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-store";
+    }
+
+    location /api/ {
+        proxy_pass       ${BE_API_URL};
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # MJPEG: buffering would hold the whole (endless) response.
+        proxy_buffering  off;
+    }
+
+    # The backend's own zone editor and API docs, reachable without the
+    # operator needing to know the API port.
+    location /ui {
+        proxy_pass       ${BE_API_URL};
+        proxy_set_header Host $host;
+    }
+
+    location /docs {
+        proxy_pass       ${BE_API_URL};
+        proxy_set_header Host $host;
+    }
+
+    location /redoc {
+        proxy_pass       ${BE_API_URL};
+        proxy_set_header Host $host;
+    }
+
+    location = /openapi.json {
+        proxy_pass       ${BE_API_URL};
+        proxy_set_header Host $host;
+    }
+
+    gzip              on;
+    gzip_types        text/css application/javascript application/json image/svg+xml;
+    gzip_min_length   1024;
+}

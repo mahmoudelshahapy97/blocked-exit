@@ -1,0 +1,77 @@
+# Explicit project name: without it compose derives one from the directory
+# ("backend"), which collides with any other stack started from a folder of the
+# same name and will recreate its containers.
+name: blocked-exit
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: blocked_exit_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-insighteye}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-insighteye}
+      POSTGRES_DB: ${POSTGRES_DB:-blocked_exit}
+    ports:
+      # Host port is configurable so this stack can coexist with another
+      # Postgres already bound to 5432.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-insighteye} -d ${POSTGRES_DB:-blocked_exit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: &logging
+      driver: json-file
+      options:
+        # Unrotated container logs are a slow disk leak on a long-running host.
+        max-size: "20m"
+        max-file: "5"
+
+  api:
+    build: .
+    container_name: blocked_exit_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Overrides .env: inside the network Postgres is reachable by service name.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-insighteye}:${POSTGRES_PASSWORD:-insighteye}@postgres:5432/${POSTGRES_DB:-blocked_exit}
+      RUN_MIGRATIONS: "${RUN_MIGRATIONS:-true}"
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Weights and snapshots survive image rebuilds.
+      - ./models:/app/models
+      - ./data:/app/data
+    # Workers need time to close their open events and release their captures.
+    stop_grace_period: 30s
+    logging: *logging
+    deploy:
+      # NOT scalable: stream workers are in-process threads with per-camera
+      # tracker state. Two replicas would open every camera twice.
+      replicas: 1
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-4g}
+
+  # Turns local video files into RTSP streams so the pipeline can be exercised
+  # without a physical camera:
+  #   docker compose --profile rtsp up mediamtx
+  #   ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/exitA
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: blocked_exit_rtsp
+    restart: unless-stopped
+    ports:
+      - "8554:8554"
+      - "1935:1935"
+    profiles: ["rtsp"]
+
+volumes:
+  pgdata:

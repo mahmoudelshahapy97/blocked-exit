@@ -1,0 +1,129 @@
+{
+  "captured_at": "2026-08-20T15:25:10.387Z",
+  "base_url": "http://localhost:8081",
+  "camera": {
+    "id": 8,
+    "name": "Exit A — Concourse",
+    "source": "/app/data/5.mp4"
+  },
+  "verdict": {
+    "state": "CLEAR",
+    "accessibility_pct": 93.73,
+    "occupied_pct": 6.27,
+    "people_count": 7,
+    "blocking_objects": 7,
+    "risk_level": "LOW",
+    "strategy": "zone_based"
+  },
+  "page_errors": [],
+  "screenshots": [
+    {
+      "file": "01-dashboard-empty.png",
+      "name": "dashboard-empty"
+    },
+    {
+      "file": "02-exits-empty.png",
+      "name": "exits-empty"
+    },
+    {
+      "file": "03-camera-form-blank.png",
+      "name": "camera-form-blank"
+    },
+    {
+      "file": "04-camera-form-required.png",
+      "name": "camera-form-required"
+    },
+    {
+      "file": "05-camera-form-threshold-error.png",
+      "name": "camera-form-threshold-error"
+    },
+    {
+      "file": "06-camera-form-filled.png",
+      "name": "camera-form-filled"
+    },
+    {
+      "file": "07-zone-editor-frame.png",
+      "name": "zone-editor-frame"
+    },
+    {
+      "file": "08-zone-polygon-drawn.png",
+      "name": "zone-polygon-drawn"
+    },
+    {
+      "file": "09-camera-detail-idle.png",
+      "name": "camera-detail-idle"
+    },
+    {
+      "file": "10-camera-detail-monitoring.png",
+      "name": "camera-detail-monitoring"
+    },
+    {
+      "file": "annotated-frame.jpg",
+      "name": "annotated detector output"
+    },
+    {
+      "file": "11-exits-monitoring.png",
+      "name": "exits-monitoring"
+    },
+    {
+      "file": "12-dashboard-live.png",
+      "name": "dashboard-live"
+    },
+    {
+      "file": "13-events.png",
+      "name": "events"
+    },
+    {
+      "file": "14-events-filtered.png",
+      "name": "events-filtered"
+    },
+    {
+      "file": "15-alerts.png",
+      "name": "alerts"
+    },
+    {
+      "file": "16-alert-acknowledge-dialog.png",
+      "name": "alert-acknowledge-dialog"
+    },
+    {
+      "file": "17-alerts-acknowledged.png",
+      "name": "alerts-acknowledged"
+    },
+    {
+      "file": "18-analytics.png",
+      "name": "analytics"
+    },
+    {
+      "file": "19-analytics-30-days.png",
+      "name": "analytics-30-days"
+    },
+    {
+      "file": "20-camera-form-edit.png",
+      "name": "camera-form-edit"
+    },
+    {
+      "file": "21-dashboard-light-theme.png",
+      "name": "dashboard-light-theme"
+    },
+    {
+      "file": "22-not-found.png",
+      "name": "not-found"
+    },
+    {
+      "file": "23-mobile-dashboard.png",
+      "name": "mobile-dashboard"
+    },
+    {
+      "file": "24-mobile-camera-detail.png",
+      "name": "mobile-camera-detail"
+    },
+    {
+      "file": "25-delete-confirm.png",
+      "name": "delete-confirm"
+    },
+    {
+      "file": "26-exits-after-delete.png",
+      "name": "exits-after-delete"
+    }
+  ]
+}

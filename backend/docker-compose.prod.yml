@@ -1,0 +1,36 @@
+# Production overlay. Use alongside the base file, never on its own:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What it changes: Postgres stops being reachable from outside the compose
+# network, the app runs with production settings, and Alembic (not the app)
+# owns the schema.
+name: blocked-exit
+
+services:
+  postgres:
+    # Drop the published host port entirely — nothing outside the compose
+    # network has any reason to reach the database directly, and a database
+    # bound to a host interface is the single most common way one gets found.
+    #
+    # `!reset` needs Compose v2.24+ (lists otherwise merge instead of replace).
+    # On an older Compose, delete the `ports:` block from docker-compose.yml.
+    ports: !reset []
+
+  api:
+    environment:
+      ENV: production
+      DEBUG: "false"
+      # The app must never mutate the schema in production; the entrypoint runs
+      # `alembic upgrade head` before uvicorn starts. Settings validation
+      # refuses to boot if this is left true with ENV=production.
+      AUTO_CREATE_TABLES: "false"
+      RUN_MIGRATIONS: "true"
+      # Interactive docs are off by default in production; set true to re-enable.
+      ENABLE_DOCS: "${ENABLE_DOCS:-false}"
+      LOG_JSON: "true"
+      # Set an explicit origin list and an API key in .env. Both are warned
+      # about at startup when left at their permissive defaults.
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      API_KEY: "${API_KEY:-}"
+    restart: always

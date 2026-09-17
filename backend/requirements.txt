@@ -1,0 +1,53 @@
+# Pinned to the versions this stack was built and tested against, so a rebuild
+# six months from now produces the same image rather than whatever resolved
+# that day. Development tooling lives in requirements-dev.txt and is
+# deliberately absent from the production image.
+#
+# Upgrading: change a pin, run `pytest`, rebuild. Never loosen to a range.
+
+# --- Web ---------------------------------------------------------------
+fastapi==0.141.1
+starlette==1.3.1
+uvicorn[standard]==0.52.1
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-multipart==0.0.32
+anyio==4.14.2
+# EmailStr validation for auth/workspace schemas.
+email-validator==2.3.0
+
+# --- Auth ----------------------------------------------------------------
+# JWT encode/decode for access, refresh and stream-ticket tokens.
+PyJWT==2.10.1
+# argon2-cffi directly, not passlib: passlib 1.7.x reaches for the stdlib
+# `crypt` module, removed in Python 3.13 (this backend's target version).
+argon2-cffi==23.1.0
+
+# --- Database ----------------------------------------------------------
+SQLAlchemy[asyncio]==2.0.51
+asyncpg==0.31.0
+alembic==1.19.0
+greenlet==3.5.4
+
+# --- Computer vision ---------------------------------------------------
+# CPU-only torch keeps the image ~2.5GB smaller. Install with:
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+ultralytics==8.4.115
+torch==2.13.0
+torchvision==0.28.0
+opencv-python-headless==5.0.0.93
+numpy==2.5.1
+# ByteTrack's assignment step. Ultralytics imports it lazily and tries to
+# pip-install it on first use, which fails silently in this image because the
+# process runs as a non-root user: every tracked frame then raised
+# "No module named 'lap'", was swallowed as a warning, and the camera
+# reported CLEAR / 100% accessible forever. Required whenever
+# ENABLE_TRACKING is true.
+lap==0.5.13
+
+# --- Alerting ----------------------------------------------------------
+httpx==0.28.1
+aiosmtplib==5.1.2
+
+# --- Logging -----------------------------------------------------------
+python-json-logger==4.1.0

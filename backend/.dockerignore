@@ -1,0 +1,24 @@
+# Keep the build context small and free of secrets. Model weights and runtime
+# data are bind-mounted by compose, so shipping them in the image would only
+# make it larger and staler.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+.env
+*.pem
+
+models/
+data/
+tests/
+
+*.mp4
+*.jpg
+*.png
+
+.git/
+.gitignore
+README.md
+docker-compose*.yml

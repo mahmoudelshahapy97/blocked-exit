@@ -1,0 +1,105 @@
+name: blocked-exit
+
+# Full stack: database + API + operator console.
+#
+#   docker compose up --build           everything
+#   docker compose up -d postgres       just the database, for local backend work
+#   docker compose --profile testing up -d mediamtx   local RTSP for camera tests
+#
+# backend/docker-compose.yml still exists and still works -- it is the
+# backend-only stack, for when you are iterating on detection and do not want a
+# web container in the way. This file wires all three tiers together. Run it
+# from THIS directory (features/blocked&exit), not from backend/.
+#
+# Both files declare the same project name, so they share one pgdata volume and
+# one API image. The cost is that `docker compose up` from backend/ reports the
+# `web` container as an orphan -- harmless, and much better than a second stack
+# running against a second, empty database. Do not pass --remove-orphans there.
+#
+# Host ports follow the convention in backend/.env: 5433 for Postgres and 8001
+# for the API, so this stack coexists with the other feature stacks.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-insighteye}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-insighteye}
+      POSTGRES_DB: ${POSTGRES_DB:-blocked_exit}
+    ports:
+      # Host port only. Inside the network the API always uses 5432.
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Reference DDL, demo data and ops queries, available inside the
+      # container but deliberately NOT at /docker-entrypoint-initdb.d: Postgres
+      # would run them on a fresh volume and create the tables before Alembic,
+      # whose CREATE TABLE has no IF NOT EXISTS. The schema belongs to Alembic;
+      # these files are for reading and for running by hand.
+      - ./database:/sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-insighteye} -d ${POSTGRES_DB:-blocked_exit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    environment:
+      # Overrides .env: inside the network Postgres is reachable by service name.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-insighteye}:${POSTGRES_PASSWORD:-insighteye}@postgres:5432/${POSTGRES_DB:-blocked_exit}
+      RUN_MIGRATIONS: "${RUN_MIGRATIONS:-true}"
+      # JWT signing key comes from backend/.env's SECRET_KEY (env_file, above).
+      # Set it there for real deployments -- the production guard in
+      # app/core/config.py refuses to boot ENV=production with the published
+      # dev default or anything under 32 characters.
+    ports:
+      - "${API_HOST_PORT:-8001}:8000"
+    volumes:
+      # Weights, snapshots and test clips survive image rebuilds.
+      - ./backend/models:/app/models
+      - ./backend/data:/app/data
+    # Workers need time to close open events and release their captures.
+    stop_grace_period: 30s
+    deploy:
+      # NOT scalable: stream workers are in-process threads with per-camera
+      # tracker state. Two replicas would open every camera twice.
+      replicas: 1
+
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # nginx proxies /api (and the backend's /ui, /docs) to the API. Service
+      # name and internal port -- the browser never resolves this. Auth is now
+      # bearer JWT carried by the browser itself (see src/api/client.js), so
+      # nginx has no credential of its own to attach.
+      BE_API_URL: http://api:8000
+    ports:
+      - "${WEB_HOST_PORT:-8081}:80"
+
+  # Local RTSP server for testing without a real camera:
+  #   docker compose --profile testing up -d mediamtx
+  #   ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8555/exitA
+  # Register the camera as rtsp://mediamtx:8554/exitA -- that URL is resolved by
+  # the api container, so "localhost" there would mean the container itself.
+  mediamtx:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    profiles: ["testing"]
+    restart: unless-stopped
+    ports:
+      - "${RTSP_HOST_PORT:-8555}:8554"
+
+volumes:
+  pgdata:
