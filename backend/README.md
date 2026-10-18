@@ -216,7 +216,7 @@ to name the obstacles — the verdict still comes from the door geometry.
 ## Performance
 
 Measured here on CPU (no usable GPU): **~3.2 fps, 256 ms/frame** with
-`yolo11n-seg` at 640px, one camera, `PROCESS_FPS=4`. That is ample — exits are
+`yolo26n-seg` at 640px, one camera, `PROCESS_FPS=4`. That is ample — exits are
 monitored at a few frames per second, not 30.
 
 For edge deployment, the paper reports large gains from exporting the model
@@ -224,7 +224,7 @@ For edge deployment, the paper reports large gains from exporting the model
 mAP50-95 unchanged):
 
 ```bash
-yolo export model=models/yolo11n-seg.pt format=openvino
+yolo export model=models/yolo26n-seg.pt format=openvino
 # then set MODEL_PATH / SEG_MODEL_PATH to the exported directory
 ```
 

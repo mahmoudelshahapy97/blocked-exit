@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     # --- Models ----------------------------------------------------------
     MODEL_DIR: Path = BASE_DIR / "models"
     MODEL_PATH: str = "yolo11n.pt"
-    SEG_MODEL_PATH: str = "yolo11n-seg.pt"
+    SEG_MODEL_PATH: str = "yolo26n-seg.pt"
     DOOR_MODEL_PATH: str | None = None  # e.g. "door_yolo11s.pt" once trained
     DEVICE: str = "cpu"
     CONF_THRESHOLD: float = 0.35
