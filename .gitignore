@@ -132,7 +132,9 @@ docker-compose.override.yml
 
 data/
 datasets/
-models/
+# Weights only: a bare models/ also matched backend/app/models (the ORM).
+/models/
+backend/models/
 checkpoints/
 runs/
 
