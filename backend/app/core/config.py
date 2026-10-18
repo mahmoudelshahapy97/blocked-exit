@@ -154,6 +154,16 @@ class Settings(BaseSettings):
     # Every MJPEG viewer costs a JPEG encode per frame; cap concurrent viewers
     # so a few forgotten browser tabs cannot starve the detection pipeline.
     MAX_MJPEG_CLIENTS: int = 8
+    # "Test connection": how long one probe may take to open the source and
+    # read a frame, and how many sources may be probed at once (probe-all
+    # must not open every camera in the workspace simultaneously).
+    PROBE_TIMEOUT_S: float = 8.0
+    PROBE_CONCURRENCY: int = 4
+
+    # --- Reporting -------------------------------------------------------
+    # Days and hours in reports, filters and charts are local to this zone
+    # (the platform reports in Africa/Cairo). Storage stays UTC.
+    REPORT_TIMEZONE: str = "Africa/Cairo"
 
     # --- Worker supervision ----------------------------------------------
     WORKER_SUPERVISION_ENABLED: bool = True

@@ -165,6 +165,11 @@ def purge_snapshots() -> tuple[int, int]:
     return deleted, reclaimed
 
 
+def unlink_files(paths: list[Path]) -> int:
+    """Delete files whose rows are gone; returns how many went. Blocking."""
+    return sum(_unlink(path) for path in paths)
+
+
 def _unlink(path: Path) -> bool:
     try:
         path.unlink(missing_ok=True)

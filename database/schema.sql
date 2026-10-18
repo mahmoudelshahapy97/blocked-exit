@@ -139,7 +139,14 @@ CREATE TABLE IF NOT EXISTS camera (
     workspace_id          INTEGER      NOT NULL
         REFERENCES workspace (id) ON DELETE CASCADE,
     name                  VARCHAR(120)             NOT NULL,
+    -- Where the exit is, coarsest to finest — the platform's camera
+    -- hierarchy. Events and analytics filter by any level (exact match, OR
+    -- within a level, AND across levels). NULL means "not set", never ''.
     location              VARCHAR(255),
+    area                  VARCHAR(100),
+    building              VARCHAR(100),
+    floor_level           VARCHAR(20),
+    zone                  VARCHAR(100),
     -- rtsp:// URL, or a local video file path when exercising the pipeline
     -- without hardware. Long enough for a URL carrying credentials.
     rtsp_url              VARCHAR(512)             NOT NULL,
@@ -179,6 +186,8 @@ CREATE        INDEX IF NOT EXISTS ix_camera_workspace_id       ON camera (worksp
 CREATE        INDEX IF NOT EXISTS ix_camera_name               ON camera (name);
 CREATE        INDEX IF NOT EXISTS ix_camera_enabled            ON camera (enabled);
 CREATE        INDEX IF NOT EXISTS ix_camera_workspace_enabled  ON camera (workspace_id, enabled);
+CREATE        INDEX IF NOT EXISTS ix_camera_workspace_hierarchy
+    ON camera (workspace_id, location, area, building, floor_level, zone);
 
 -- ---------------------------------------------------------------------------
 -- blockage_event — one confirmed obstruction episode
@@ -275,13 +284,13 @@ COMMIT;
 -- file has the tables but no version row, so `alembic upgrade head` would try
 -- to create them a second time and fail. Stamp it instead:
 --
---   alembic stamp 0003
+--   alembic stamp 0004
 --
 -- Equivalent to, from psql:
 --
 --   CREATE TABLE IF NOT EXISTS alembic_version (
 --       version_num VARCHAR(32) NOT NULL CONSTRAINT alembic_version_pkc PRIMARY KEY
 --   );
---   INSERT INTO alembic_version (version_num) VALUES ('0003')
+--   INSERT INTO alembic_version (version_num) VALUES ('0004')
 --       ON CONFLICT DO NOTHING;
 -- ---------------------------------------------------------------------------

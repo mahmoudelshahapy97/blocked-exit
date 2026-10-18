@@ -24,9 +24,23 @@ import { ErrorState, Loading } from "../../components/DataStates";
 import PageHeader from "../../components/PageHeader";
 import { STRATEGY } from "../../utils/constants";
 
+/** Where the exit is, coarsest first — the platform's camera hierarchy. The
+ *  Events and Analytics filters cascade through these in this order. */
+const HIERARCHY_FIELDS = [
+  { field: "location", label: "Location", placeholder: "Cairo HQ", maxLength: 255 },
+  { field: "area", label: "Area", placeholder: "East wing", maxLength: 100 },
+  { field: "building", label: "Building", placeholder: "Building 1", maxLength: 100 },
+  { field: "floor_level", label: "Floor", placeholder: "Ground", maxLength: 20 },
+  { field: "zone", label: "Zone", placeholder: "Loading dock", maxLength: 100 },
+];
+
 const EMPTY = {
   name: "",
   location: "",
+  area: "",
+  building: "",
+  floor_level: "",
+  zone: "",
   rtsp_url: "",
   enabled: true,
   strategy: STRATEGY.ZONE_BASED,
@@ -99,6 +113,10 @@ export default function CameraForm() {
     setValues({
       name: camera.name ?? "",
       location: camera.location ?? "",
+      area: camera.area ?? "",
+      building: camera.building ?? "",
+      floor_level: camera.floor_level ?? "",
+      zone: camera.zone ?? "",
       rtsp_url: camera.rtsp_url ?? "",
       enabled: camera.enabled ?? true,
       strategy: camera.strategy ?? STRATEGY.ZONE_BASED,
@@ -119,11 +137,13 @@ export default function CameraForm() {
   const payload = useMemo(() => {
     const body = {
       name: values.name.trim(),
-      location: values.location.trim() || null,
       rtsp_url: values.rtsp_url.trim(),
       enabled: values.enabled,
       strategy: values.strategy,
     };
+    HIERARCHY_FIELDS.forEach(({ field }) => {
+      body[field] = values[field].trim() || null;
+    });
     NUMERIC_FIELDS.forEach((field) => {
       body[field] = values[field] === "" ? null : Number(values[field]);
     });
@@ -193,13 +213,20 @@ export default function CameraForm() {
                   error={Boolean(errors.name)}
                   helperText={errors.name || "Must be unique — the backend rejects duplicates."}
                 />
-                <TextField
-                  label="Location"
-                  fullWidth
-                  value={values.location}
-                  onChange={setField("location")}
-                  placeholder="Building 1, Floor 1"
-                />
+                <Grid container spacing={2}>
+                  {HIERARCHY_FIELDS.map(({ field, label, placeholder, maxLength }) => (
+                    <Grid key={field} size={{ xs: 12, sm: field === "location" ? 12 : 6 }}>
+                      <TextField
+                        label={label}
+                        fullWidth
+                        value={values[field]}
+                        onChange={setField(field)}
+                        placeholder={placeholder}
+                        inputProps={{ maxLength }}
+                      />
+                    </Grid>
+                  ))}
+                </Grid>
                 <TextField
                   label="Stream source"
                   required

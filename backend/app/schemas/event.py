@@ -58,3 +58,10 @@ class Page[T](BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class DeleteResult(BaseModel):
+    deleted: int = Field(description="Events removed, with their alerts and snapshots")
+    skipped_open: int = Field(
+        0, description="Matching events still ongoing, which are never deleted"
+    )

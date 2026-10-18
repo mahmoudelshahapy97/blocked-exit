@@ -26,6 +26,15 @@ class Camera(Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "name", name="uq_camera_workspace_name"),
         Index("ix_camera_workspace_enabled", "workspace_id", "enabled"),
+        Index(
+            "ix_camera_workspace_hierarchy",
+            "workspace_id",
+            "location",
+            "area",
+            "building",
+            "floor_level",
+            "zone",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -35,6 +44,12 @@ class Camera(Base):
     )
     name: Mapped[str] = mapped_column(String(120), index=True)
     location: Mapped[str | None] = mapped_column(String(255))
+    # Where the exit is, coarsest to finest, as on the platform's video_stream.
+    # Free text: filters match the exact strings operators typed.
+    area: Mapped[str | None] = mapped_column(String(100))
+    building: Mapped[str | None] = mapped_column(String(100))
+    floor_level: Mapped[str | None] = mapped_column(String(20))
+    zone: Mapped[str | None] = mapped_column(String(100))
     rtsp_url: Mapped[str] = mapped_column(String(512))
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     strategy: Mapped[str] = mapped_column(String(32), default="zone_based")

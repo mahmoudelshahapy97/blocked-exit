@@ -57,6 +57,11 @@ export const cameras = {
   create: (payload) => client.post("/cameras", payload).then((r) => r.data),
   update: (id, payload) => client.patch(`/cameras/${id}`, payload).then((r) => r.data),
   remove: (id) => client.delete(`/cameras/${id}`).then((r) => r.data),
+  /** Distinct location/area/building/floor/zone values, narrowed by `params`. */
+  hierarchy: (params, opts) =>
+    client.get("/cameras/hierarchy", { params, ...opts }).then((r) => r.data),
+  probe: (id) => client.post(`/cameras/${id}/probe`).then((r) => r.data),
+  probeAll: () => client.post("/cameras/probe-all").then((r) => r.data),
 
   /**
    * A clean frame plus the pixel size it was captured at. The size is the
@@ -133,6 +138,10 @@ export const monitoring = {
 export const events = {
   list: (params, opts) => client.get("/events", { params, ...opts }).then((r) => r.data),
   get: (id) => client.get(`/events/${id}`).then((r) => r.data),
+  // Workspace admins only. `remove` needs at least one filter.
+  remove: (params) => client.delete("/events", { params }).then((r) => r.data),
+  removeAll: () =>
+    client.delete("/events/all", { params: { confirm: true } }).then((r) => r.data),
 };
 
 // --- alerts ---------------------------------------------------------------

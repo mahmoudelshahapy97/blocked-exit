@@ -83,8 +83,15 @@ async def db(monkeypatch):
     NullPool: pytest-asyncio gives each test its own event loop, and a pooled
     asyncpg connection cannot cross loops.
     """
-    from app.core import database
+    from argon2 import PasswordHasher
 
+    from app.core import database, security
+
+    # Production-cost argon2 makes every account in a fixture take ~0.4s; the
+    # hash parameters are not what these tests are about.
+    monkeypatch.setattr(
+        security, "_hasher", PasswordHasher(time_cost=1, memory_cost=1024, parallelism=1)
+    )
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
     factory = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
@@ -174,3 +181,50 @@ def make_user(client, superadmin):
         return await login(client, username)
 
     return _make
+
+
+async def active_workspace_id(client, token: str) -> int:
+    response = await client.get("/workspaces/active", headers=bearer(token))
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
+
+
+async def create_camera(client, token: str, name: str, **fields) -> int:
+    # Port 9 (discard) refuses at once, so a probe fails fast instead of
+    # waiting out a DNS lookup or a connect timeout.
+    payload = {"name": name, "rtsp_url": f"rtsp://127.0.0.1:9/{name}", "enabled": False}
+    payload.update(fields)
+    response = await client.post("/cameras", json=payload, headers=bearer(token))
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+async def insert_event(sql, *, workspace_id: int, camera_id: int, started_at, **fields):
+    """Insert a blockage_event row directly; returns its id. Closed after 60s
+    unless ended_at/duration_s say otherwise."""
+    from datetime import timedelta
+
+    row = {
+        "ended_at": started_at + timedelta(seconds=60),
+        "duration_s": 60.0,
+        "state": "CLEAR",
+        "peak_state": "PARTIAL",
+        "strategy": "zone_based",
+        "min_accessibility_pct": 50.0,
+        "last_accessibility_pct": 100.0,
+        "peak_risk_score": 40.0,
+        "snapshot_path": None,
+        **fields,
+    }
+    import json
+
+    if row.get("blocking_objects") is not None:
+        row["blocking_objects"] = json.dumps(row["blocking_objects"])
+    columns = ["workspace_id", "camera_id", "started_at", *row]
+    values = [workspace_id, camera_id, started_at, *row.values()]
+    placeholders = ", ".join(f"${i}" for i in range(1, len(values) + 1))
+    return await sql.fetchval(
+        f"INSERT INTO blockage_event ({', '.join(columns)}) "
+        f"VALUES ({placeholders}) RETURNING id",
+        *values,
+    )

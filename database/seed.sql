@@ -129,6 +129,19 @@ ON CONFLICT (workspace_id, name) DO UPDATE SET
     process_fps   = EXCLUDED.process_fps,
     updated_at    = now();
 
+-- Where each exit is: location > area > building > floor_level > zone, so the
+-- hierarchy filters on Events and Analytics have something to cascade through.
+UPDATE camera c
+SET location = v.location, area = v.area, building = v.building,
+    floor_level = v.floor_level, zone = v.zone
+FROM workspace w, (VALUES
+    ('Exit A - Main Corridor',   'Cairo HQ', 'North campus', 'Building 1', '1', 'Main corridor'),
+    ('Exit B - Warehouse North', 'Cairo HQ', 'Logistics',    'Building 2', 'G', 'Loading dock'),
+    ('Exit C - Stairwell East',  'Cairo HQ', 'North campus', 'Building 1', '3', 'East stairwell'),
+    ('Exit D - Server Room',     'Giza DC',  'Data hall',    'Building 3', 'B1', 'Server room')
+) AS v(name, location, area, building, floor_level, zone)
+WHERE w.slug = 'demo' AND c.workspace_id = w.id AND c.name = v.name;
+
 -- --- clear previous seed history -------------------------------------------
 -- Only for the seeded cameras, so a database that also holds real events from
 -- a live worker keeps them. The alert rows go with the events via ON DELETE

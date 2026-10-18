@@ -4,7 +4,13 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import Chip from "@mui/material/Chip";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
+import Divider from "@mui/material/Divider";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
@@ -19,30 +25,101 @@ import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 
+import { errorMessage } from "../api/client";
 import { cameras as camerasApi, events as eventsApi } from "../api/endpoints";
 import { usePolling } from "../hooks/usePolling";
 import { useAsync } from "../hooks/useAsync";
+import { useAuth } from "../context/AuthContext";
+import { useToast } from "../components/Toast";
 import { EmptyState, ErrorState, Loading } from "../components/DataStates";
+import EventFilterBar, { FILTER_KEYS, hasFilters, pickFilters } from "../components/EventFilterBar";
 import PageHeader from "../components/PageHeader";
 import { StateChip } from "../components/StatusChips";
 import { BLOCKAGE_STATE } from "../utils/constants";
 import { formatDateTime, formatDuration, formatPct, summarizeObjects } from "../utils/format";
 
 const ROWS_PER_PAGE = [10, 25, 50, 100];
+const CONFIRM_WORD = "DELETE";
+
+/** Admin-only: delete the events matching the filters, or every event. */
+function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
+  const toast = useToast();
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const all = mode === "all";
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const result = all ? await eventsApi.removeAll() : await eventsApi.remove(filters);
+      toast.success(
+        `Deleted ${result.deleted} event${result.deleted === 1 ? "" : "s"}` +
+          (result.skipped_open ? `; kept ${result.skipped_open} still ongoing` : "")
+      );
+      onDone();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>{all ? "Delete all events" : "Delete matching events"}</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2}>
+          <Typography variant="body2">
+            {all
+              ? "Every closed event in this workspace will be removed, with its alerts and snapshot."
+              : `The ${total ?? ""} event${total === 1 ? "" : "s"} matching the current date, time, exit and location filters will be removed, with their alerts and snapshots.`}{" "}
+            Ongoing blockages are kept. This cannot be undone.
+          </Typography>
+          {all && (
+            <TextField
+              size="small"
+              label={`Type ${CONFIRM_WORD} to confirm`}
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              autoFocus
+            />
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={busy} color="inherit">
+          Cancel
+        </Button>
+        <Button
+          color="error"
+          variant="contained"
+          onClick={submit}
+          disabled={busy || (all && typed !== CONFIRM_WORD)}
+        >
+          Delete
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 export default function Events() {
   // Filters live in the URL so a view worth sharing is a link, and the "View
   // all" button on a camera page can arrive here pre-filtered.
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const cameraId = searchParams.get("camera_id") || "";
+  const filters = useMemo(() => pickFilters(searchParams), [searchParams]);
   const state = searchParams.get("state") || "";
   const openOnly = searchParams.get("open_only") === "true";
   const limit = Number(searchParams.get("limit")) || 25;
   const offset = Number(searchParams.get("offset")) || 0;
 
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const { canManage } = useAuth();
+  const [deleteMenu, setDeleteMenu] = useState(null);
+  const [deleteMode, setDeleteMode] = useState(null); // "filtered" | "all"
 
   const setParam = useCallback(
     (updates) => {
@@ -65,15 +142,21 @@ export default function Events() {
 
   const { data: cameraList } = useAsync(({ signal }) => camerasApi.list(undefined, { signal }), []);
 
+  const setFilters = useCallback(
+    (next) =>
+      setParam(Object.fromEntries(FILTER_KEYS.map((key) => [key, next[key] || ""]))),
+    [setParam]
+  );
+
   const params = useMemo(
     () => ({
       limit,
       offset,
-      ...(cameraId ? { camera_id: Number(cameraId) } : {}),
+      ...filters,
       ...(state ? { state } : {}),
       ...(openOnly ? { open_only: true } : {}),
     }),
-    [limit, offset, cameraId, state, openOnly]
+    [limit, offset, filters, state, openOnly]
   );
 
   const { data, error, loading, refresh } = usePolling(
@@ -108,27 +191,64 @@ export default function Events() {
             <Button startIcon={<RefreshIcon />} onClick={refresh} color="inherit">
               Refresh
             </Button>
+            {canManage && (
+              <Button
+                color="error"
+                startIcon={<DeleteSweepIcon />}
+                onClick={(event) => setDeleteMenu(event.currentTarget)}
+              >
+                Delete data
+              </Button>
+            )}
           </>
         }
       />
 
+      <Menu anchorEl={deleteMenu} open={Boolean(deleteMenu)} onClose={() => setDeleteMenu(null)}>
+        <Tooltip
+          title={hasFilters(filters) ? "" : "Set a date, time, exit or location filter first"}
+          placement="left"
+        >
+          <span>
+            <MenuItem
+              disabled={!hasFilters(filters)}
+              onClick={() => {
+                setDeleteMode("filtered");
+                setDeleteMenu(null);
+              }}
+            >
+              Delete events matching the filters
+            </MenuItem>
+          </span>
+        </Tooltip>
+        <Divider />
+        <MenuItem
+          sx={{ color: "error.main" }}
+          onClick={() => {
+            setDeleteMode("all");
+            setDeleteMenu(null);
+          }}
+        >
+          Delete all events…
+        </MenuItem>
+      </Menu>
+      {deleteMode && (
+        <DeleteDataDialog
+          mode={deleteMode}
+          filters={filters}
+          total={data?.total}
+          onClose={() => setDeleteMode(null)}
+          onDone={() => {
+            setDeleteMode(null);
+            refresh();
+          }}
+        />
+      )}
+
       <Card sx={{ p: 2, mb: 2 }}>
+        <EventFilterBar value={filters} onChange={setFilters} />
+        <Divider sx={{ my: 2 }} />
         <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
-          <TextField
-            select
-            size="small"
-            label="Exit"
-            value={cameraId}
-            onChange={(event) => setParam({ camera_id: event.target.value })}
-            sx={{ minWidth: 220 }}
-          >
-            <MenuItem value="">All exits</MenuItem>
-            {(cameraList || []).map((camera) => (
-              <MenuItem key={camera.id} value={camera.id}>
-                {camera.name}
-              </MenuItem>
-            ))}
-          </TextField>
 
           <TextField
             select

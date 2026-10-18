@@ -3,6 +3,12 @@ import { Link as RouterLink, useNavigate } from "react-router-dom";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
+import Chip from "@mui/material/Chip";
+import CircularProgress from "@mui/material/CircularProgress";
+import Dialog from "@mui/material/Dialog";
+import DialogActions from "@mui/material/DialogActions";
+import DialogContent from "@mui/material/DialogContent";
+import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -25,6 +31,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import CropFreeIcon from "@mui/icons-material/CropFree";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
+import NetworkCheckIcon from "@mui/icons-material/NetworkCheck";
 
 import { errorMessage } from "../../api/client";
 import { cameras as camerasApi, monitoring } from "../../api/endpoints";
@@ -36,7 +43,72 @@ import ConfirmDialog from "../../components/ConfirmDialog";
 import { RoleGate } from "../../components/ProtectedRoute";
 import PageHeader from "../../components/PageHeader";
 import { StateChip, StrategyChip, WorkerChip } from "../../components/StatusChips";
-import { formatPct, redactUrl } from "../../utils/format";
+import { formatPct } from "../../utils/format";
+
+/** "Cairo HQ · East wing · Building 1 · Floor 2 · Loading dock" */
+const placeOf = (camera) =>
+  [camera.location, camera.area, camera.building, camera.floor_level && `Floor ${camera.floor_level}`, camera.zone]
+    .filter(Boolean)
+    .join(" · ");
+
+/** Results of "Test connection" for one exit or all of them. */
+function ProbeDialog({ results, onClose }) {
+  return (
+    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Connection test</DialogTitle>
+      <DialogContent>
+        {results === null ? (
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ py: 3 }}>
+            <CircularProgress size={22} />
+            <Typography variant="body2">
+              Opening each stream and reading a frame (at most four at a time)…
+            </Typography>
+          </Stack>
+        ) : (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Exit</TableCell>
+                <TableCell>Result</TableCell>
+                <TableCell>Details</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {results.map((r) => (
+                <TableRow key={r.camera_id}>
+                  <TableCell>{r.camera_name}</TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      color={r.reachable ? "success" : "error"}
+                      label={r.reachable ? "reachable" : "unreachable"}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" color="text.secondary">
+                      {r.reachable
+                        ? [
+                            `${r.width}×${r.height}`,
+                            r.fps ? `${r.fps} fps` : null,
+                            `first frame in ${Math.round(r.latency_ms)} ms`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : r.error}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Close</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
 
 export default function CameraList() {
   const navigate = useNavigate();
@@ -45,6 +117,19 @@ export default function CameraList() {
   const [menu, setMenu] = useState({ anchor: null, camera: null });
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [probeResults, setProbeResults] = useState(undefined); // undefined: closed, null: running
+
+  const runProbe = async (cameraId) => {
+    setProbeResults(null);
+    try {
+      setProbeResults(
+        cameraId === undefined ? await camerasApi.probeAll() : [await camerasApi.probe(cameraId)]
+      );
+    } catch (err) {
+      toast.error(errorMessage(err));
+      setProbeResults(undefined);
+    }
+  };
 
   const {
     data: cameraList,
@@ -78,7 +163,7 @@ export default function CameraList() {
     const needle = search.trim().toLowerCase();
     if (!needle) return cameraList || [];
     return (cameraList || []).filter((camera) =>
-      [camera.name, camera.location, camera.rtsp_url]
+      [camera.name, placeOf(camera), camera.source_host]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(needle))
     );
@@ -109,11 +194,21 @@ export default function CameraList() {
           <>
             <TextField
               size="small"
-              placeholder="Search name, location, URL…"
+              placeholder="Search name, place, URL…"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               sx={{ minWidth: 240 }}
             />
+            <RoleGate minimum="member">
+              <Button
+                color="inherit"
+                startIcon={<NetworkCheckIcon />}
+                onClick={() => runProbe()}
+                disabled={!cameraList?.length}
+              >
+                Test all
+              </Button>
+            </RoleGate>
             <RoleGate minimum="member">
               <Button
                 variant="contained"
@@ -183,13 +278,13 @@ export default function CameraList() {
                           {camera.name}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {camera.location || "—"}
+                          {placeOf(camera) || "—"}
                         </Typography>
                       </TableCell>
                       <TableCell sx={{ maxWidth: 260 }}>
-                        <Tooltip title={redactUrl(camera.rtsp_url)}>
+                        <Tooltip title={camera.source_host}>
                           <Typography variant="caption" noWrap display="block" color="text.secondary">
-                            {redactUrl(camera.rtsp_url)}
+                            {camera.source_host}
                           </Typography>
                         </Tooltip>
                         {!camera.enabled && (
@@ -291,6 +386,15 @@ export default function CameraList() {
         </MenuItem>
         <MenuItem
           onClick={() => {
+            runProbe(menu.camera.id);
+            closeMenu();
+          }}
+        >
+          <NetworkCheckIcon fontSize="small" sx={{ mr: 1.5 }} />
+          Test connection
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
             restart(menu.camera.id);
             closeMenu();
           }}
@@ -309,6 +413,10 @@ export default function CameraList() {
           Delete
         </MenuItem>
       </Menu>
+
+      {probeResults !== undefined && (
+        <ProbeDialog results={probeResults} onClose={() => setProbeResults(undefined)} />
+      )}
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
