@@ -20,7 +20,6 @@ import asyncpg
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -80,8 +79,10 @@ def migrated_database():
 async def db(monkeypatch):
     """Point the app's session factory at the test database, on an empty schema.
 
-    NullPool: pytest-asyncio gives each test its own event loop, and a pooled
-    asyncpg connection cannot cross loops.
+    The engine (and its pool) is created and disposed inside each test:
+    pytest-asyncio gives every test its own event loop, and a pooled asyncpg
+    connection cannot cross loops. Pooling within a test matters -- each new
+    connection pays a SCRAM handshake.
     """
     from argon2 import PasswordHasher
 
@@ -92,7 +93,7 @@ async def db(monkeypatch):
     monkeypatch.setattr(
         security, "_hasher", PasswordHasher(time_cost=1, memory_cost=1024, parallelism=1)
     )
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL)
     factory = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
     )

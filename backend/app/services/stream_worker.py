@@ -26,6 +26,7 @@ from app.core.logging import get_logger
 from app.core.redaction import redact_text, redact_url
 from app.schemas.detection import CameraStatus, DetectionResult
 from app.services import alerting, annotator, risk
+from app.services.confidence import ConfidenceTracker
 from app.services.detector.base import CameraContext
 from app.services.detector.registry import strategy_for_camera
 from app.services.temporal import TemporalFilter
@@ -90,6 +91,7 @@ class StreamWorker(threading.Thread):
         self._fps = FpsMeter()
         self._temporal = TemporalFilter.for_camera(camera)
         self._policy = alerting.AlertPolicy()
+        self._confidence = ConfidenceTracker()
         self._strategy = None  # built on the worker thread (model load is slow)
 
     # -- lifecycle --------------------------------------------------------
@@ -216,6 +218,10 @@ class StreamWorker(threading.Thread):
         transition = self._temporal.update(result.raw_state)
         state = self._temporal.state
         duration = self._temporal.blocked_duration_s
+        if transition.opened:
+            self._confidence.reset()
+        if self._temporal.blocked:
+            self._confidence.sample(result.blocking_objects)
 
         assessment = risk.assess(
             state=state,
@@ -289,6 +295,7 @@ class StreamWorker(threading.Thread):
                         "event_id": self.current_event_id,
                         "duration_s": transition.duration_s,
                         "accessibility_pct": result.accessibility_pct,
+                        **self._confidence.values,
                     },
                 )
             )
@@ -364,9 +371,11 @@ class StreamWorker(threading.Thread):
             "strategy": result.strategy,
             "accessibility_pct": result.accessibility_pct,
             "risk_score": assessment.score,
+            "risk_level": assessment.level.value,
             "duration_s": duration,
             "blocking_objects": [obj.model_dump() for obj in result.blocking_objects],
             "started_at": self._blocked_since_wall or utcnow(),
+            **self._confidence.values,
         }
 
     def _close_open_event(self, *, reason: str) -> None:

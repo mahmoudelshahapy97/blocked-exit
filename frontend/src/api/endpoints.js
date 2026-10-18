@@ -138,6 +138,16 @@ export const monitoring = {
 export const events = {
   list: (params, opts) => client.get("/events", { params, ...opts }).then((r) => r.data),
   get: (id) => client.get(`/events/${id}`).then((r) => r.data),
+  overview: (opts) => client.get("/events/overview", opts).then((r) => r.data),
+  /** Object URL of the event's snapshot; the caller revokes it. */
+  snapshot: (id, opts) => fetchImageObjectUrl(`/events/${id}/snapshot`, opts),
+  // Members and up.
+  acknowledge: (id, note) =>
+    client.post(`/events/${id}/acknowledge`, { note: note || undefined }).then((r) => r.data),
+  resolve: (id, note) =>
+    client
+      .post(`/events/${id}/resolve`, { status: "resolved", note: note || undefined })
+      .then((r) => r.data),
   // Workspace admins only. `remove` needs at least one filter.
   remove: (params) => client.delete("/events", { params }).then((r) => r.data),
   removeAll: () =>

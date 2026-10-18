@@ -21,12 +21,13 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import CropFreeIcon from "@mui/icons-material/CropFree";
 
-import { analytics, cameras as camerasApi, monitoring } from "../api/endpoints";
+import { analytics, cameras as camerasApi, events as eventsApi, monitoring } from "../api/endpoints";
 import { usePolling } from "../hooks/usePolling";
 import { useMonitoringActions } from "../hooks/useMonitoringActions";
 import { Loading, EmptyState, ErrorState } from "../components/DataStates";
 import PageHeader from "../components/PageHeader";
 import StatCard from "../components/StatCard";
+import { RoleGate } from "../components/ProtectedRoute";
 import LiveView from "../components/LiveView";
 import { RiskChip, StateChip, WorkerChip } from "../components/StatusChips";
 import { POLL_INTERVAL_MS } from "../utils/constants";
@@ -187,6 +188,9 @@ export default function Dashboard() {
   const { data: summary } = usePolling(({ signal }) => analytics.summary(7, { signal }), {
     intervalMs: 30000,
   });
+  const { data: overview } = usePolling(({ signal }) => eventsApi.overview({ signal }), {
+    intervalMs: 15000,
+  });
 
   const refreshAll = useCallback(async () => {
     await Promise.all([refresh(), refreshCameras()]);
@@ -226,14 +230,16 @@ export default function Dashboard() {
             <Button startIcon={<RefreshIcon />} onClick={refreshAll} color="inherit">
               Refresh
             </Button>
-            <Button
-              startIcon={<AddIcon />}
-              variant="contained"
-              component={RouterLink}
-              to="/cameras/new"
-            >
-              Add exit
-            </Button>
+            <RoleGate minimum="member">
+              <Button
+                startIcon={<AddIcon />}
+                variant="contained"
+                component={RouterLink}
+                to="/cameras/new"
+              >
+                Add exit
+              </Button>
+            </RoleGate>
           </>
         }
       />
@@ -258,13 +264,23 @@ export default function Dashboard() {
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
-          <StatCard
-            label="Events (7d)"
-            value={summary?.events_total ?? "—"}
-            hint={`${summary?.events_open ?? 0} still open`}
-            icon={<DoorFrontIcon />}
-            color="warning"
-          />
+          <CardActionArea
+            component={RouterLink}
+            to="/events?status=detected"
+            sx={{ borderRadius: 1, height: "100%" }}
+          >
+            <StatCard
+              label="Unacknowledged"
+              value={overview?.unacknowledged_events ?? "—"}
+              hint={
+                overview
+                  ? `${overview.open_events} unresolved · ${overview.events_24h} in 24h`
+                  : ""
+              }
+              icon={<DoorFrontIcon />}
+              color={overview?.high_risk_open_events ? "error" : "warning"}
+            />
+          </CardActionArea>
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard

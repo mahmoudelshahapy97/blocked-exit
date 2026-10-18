@@ -224,7 +224,30 @@ CREATE TABLE IF NOT EXISTS blockage_event (
 
     -- [{label, class_id, confidence, track_id, bbox, area_pct}, ...]
     blocking_objects       JSONB,
-    snapshot_path          VARCHAR(512)
+    snapshot_path          VARCHAR(512),
+
+    -- The band of peak_risk_score: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'.
+    risk_level             VARCHAR(16),
+    -- Peak and mean of each analysed frame's most confident blocking
+    -- detection, for the confidence-audit analytics.
+    confidence             NUMERIC(5,4),
+    avg_confidence         NUMERIC(5,4),
+
+    -- Operator workflow (the platform's event lifecycle), independent of
+    -- whether the blockage itself has ended: a blockage can clear long before
+    -- anyone looks at it. Resolving from 'detected' stamps acknowledged_* too.
+    status                 VARCHAR(16)  NOT NULL DEFAULT 'detected'
+        CONSTRAINT ck_blockage_event_status
+            CHECK (status IN ('detected', 'acknowledged', 'resolved')),
+    acknowledged_at        TIMESTAMPTZ,
+    acknowledged_by_id     INTEGER
+        CONSTRAINT fk_blockage_event_acknowledged_by_id
+            REFERENCES app_user (id) ON DELETE SET NULL,
+    resolved_at            TIMESTAMPTZ,
+    resolved_by_id         INTEGER
+        CONSTRAINT fk_blockage_event_resolved_by_id
+            REFERENCES app_user (id) ON DELETE SET NULL,
+    resolution_note        VARCHAR(1000)
 );
 
 CREATE INDEX IF NOT EXISTS ix_blockage_event_workspace_id      ON blockage_event (workspace_id);
@@ -233,6 +256,9 @@ CREATE INDEX IF NOT EXISTS ix_blockage_event_started_at        ON blockage_event
 -- Composite: every analytics query filters by camera/tenant and time window together.
 CREATE INDEX IF NOT EXISTS ix_blockage_event_camera_started    ON blockage_event (camera_id, started_at);
 CREATE INDEX IF NOT EXISTS ix_blockage_event_workspace_started ON blockage_event (workspace_id, started_at);
+-- The event list's "unresolved" view and the overview counters.
+CREATE INDEX IF NOT EXISTS ix_blockage_event_workspace_status_started
+    ON blockage_event (workspace_id, status, started_at);
 
 -- ---------------------------------------------------------------------------
 -- alert — one delivery attempt, on one channel, for one event
@@ -284,13 +310,13 @@ COMMIT;
 -- file has the tables but no version row, so `alembic upgrade head` would try
 -- to create them a second time and fail. Stamp it instead:
 --
---   alembic stamp 0004
+--   alembic stamp 0005
 --
 -- Equivalent to, from psql:
 --
 --   CREATE TABLE IF NOT EXISTS alembic_version (
 --       version_num VARCHAR(32) NOT NULL CONSTRAINT alembic_version_pkc PRIMARY KEY
 --   );
---   INSERT INTO alembic_version (version_num) VALUES ('0004')
+--   INSERT INTO alembic_version (version_num) VALUES ('0005')
 --       ON CONFLICT DO NOTHING;
 -- ---------------------------------------------------------------------------

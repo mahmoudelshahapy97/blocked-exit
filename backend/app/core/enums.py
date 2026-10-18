@@ -36,6 +36,16 @@ class RiskLevel(StrEnum):
     CRITICAL = "CRITICAL"
 
 
+class EventStatus(StrEnum):
+    """Where an operator has got to with a blockage event (the platform's
+    detected -> acknowledged -> resolved). Independent of whether the blockage
+    itself is still ongoing: that is `ended_at`."""
+
+    DETECTED = "detected"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+
+
 class StrategyName(StrEnum):
     ZONE_BASED = "zone_based"
     DOOR_CENTRIC = "door_centric"

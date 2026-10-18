@@ -1,6 +1,12 @@
 import Chip from "@mui/material/Chip";
 import Tooltip from "@mui/material/Tooltip";
-import { RISK_COLOR, STATE_COLOR, STRATEGY_LABEL, WORKER_COLOR } from "../utils/constants";
+import {
+  EVENT_STATUS_COLOR,
+  RISK_COLOR,
+  STATE_COLOR,
+  STRATEGY_LABEL,
+  WORKER_COLOR,
+} from "../utils/constants";
 
 const STATE_HINT = {
   CLEAR: "The exit is accessible",
@@ -36,6 +42,27 @@ export function RiskChip({ level, score, size = "small", ...props }) {
       variant={value === "CRITICAL" ? "filled" : "outlined"}
       {...props}
     />
+  );
+}
+
+const EVENT_STATUS_HINT = {
+  detected: "Nobody has acknowledged this yet",
+  acknowledged: "Someone is on it",
+  resolved: "Closed by an operator",
+};
+
+export function EventStatusChip({ status, size = "small", ...props }) {
+  const value = status || "detected";
+  return (
+    <Tooltip title={EVENT_STATUS_HINT[value] || ""}>
+      <Chip
+        label={value}
+        color={EVENT_STATUS_COLOR[value] || "default"}
+        size={size}
+        variant={value === "detected" ? "filled" : "outlined"}
+        {...props}
+      />
+    </Tooltip>
   );
 }
 

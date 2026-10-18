@@ -16,7 +16,7 @@ from sqlalchemy import func, select, update
 
 from app.core.config import settings
 from app.core.database import session_scope
-from app.core.enums import BlockageState, WorkerState
+from app.core.enums import BlockageState, RiskLevel, WorkerState
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.models.camera import Camera
@@ -460,6 +460,9 @@ class StreamManager:
                 min_accessibility_pct=payload["accessibility_pct"],
                 last_accessibility_pct=payload["accessibility_pct"],
                 peak_risk_score=payload.get("risk_score", 0.0),
+                risk_level=payload.get("risk_level"),
+                confidence=payload.get("confidence"),
+                avg_confidence=payload.get("avg_confidence"),
                 blocking_objects=payload.get("blocking_objects"),
                 snapshot_path=snapshot_path,
             )
@@ -492,6 +495,8 @@ class StreamManager:
                 event.peak_state = state.value
             if payload.get("blocking_objects"):
                 event.blocking_objects = payload["blocking_objects"]
+            event.risk_level = _worse_risk(event.risk_level, payload.get("risk_level"))
+            _apply_confidence(event, payload)
 
     async def _on_close(self, message: PipelineMessage) -> None:
         payload = message.payload
@@ -511,6 +516,7 @@ class StreamManager:
                 "accessibility_pct", event.last_accessibility_pct
             )
             event.state = BlockageState.CLEAR.value
+            _apply_confidence(event, payload)
 
     async def _on_alert(self, message: PipelineMessage) -> None:
         payload = message.payload["alert"]
@@ -544,6 +550,23 @@ async def _cancel(task: asyncio.Task | None) -> None:
         pass
     except Exception:
         logger.exception("Background task raised while shutting down")
+
+
+_RISK_ORDER = [level.value for level in RiskLevel]  # LOW .. CRITICAL
+
+
+def _worse_risk(current: str | None, new: str | None) -> str | None:
+    """An event keeps the worst risk band it ever reached."""
+    if current is None or new is None:
+        return current or new
+    return max(current, new, key=_RISK_ORDER.index)
+
+
+def _apply_confidence(event: BlockageEvent, payload: dict) -> None:
+    """The worker's running peak/mean, when it has any samples yet."""
+    if payload.get("confidence") is not None:
+        event.confidence = payload["confidence"]
+        event.avg_confidence = payload.get("avg_confidence")
 
 
 def _write_snapshot(data: bytes | None, camera_id: int, tag: str) -> str | None:

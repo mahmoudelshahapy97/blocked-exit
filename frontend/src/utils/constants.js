@@ -14,6 +14,19 @@ export const RISK_LEVEL = {
   CRITICAL: "CRITICAL",
 };
 
+/** The operator workflow: detected -> acknowledged -> resolved. */
+export const EVENT_STATUS = {
+  DETECTED: "detected",
+  ACKNOWLEDGED: "acknowledged",
+  RESOLVED: "resolved",
+};
+
+export const EVENT_STATUS_COLOR = {
+  detected: "error",
+  acknowledged: "warning",
+  resolved: "success",
+};
+
 export const STRATEGY = {
   ZONE_BASED: "zone_based",
   DOOR_CENTRIC: "door_centric",
