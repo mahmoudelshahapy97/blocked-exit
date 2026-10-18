@@ -1,5 +1,10 @@
-import { expect, test } from "@playwright/test";
-import { API, collectPageProblems, deleteCameraIfPresent } from "./helpers.js";
+import {
+  API,
+  collectPageProblems,
+  deleteCameraIfPresent,
+  expect,
+  test,
+} from "./helpers.js";
 
 /**
  * The shell: every route renders, the nav reaches all of them, and the backend

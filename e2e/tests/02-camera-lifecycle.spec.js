@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   API,
   CAMERA_LOCATION,
@@ -6,7 +5,9 @@ import {
   VIDEO_SOURCE,
   collectPageProblems,
   deleteCameraIfPresent,
+  expect,
   findCamera,
+  test,
   waitForApi,
 } from "./helpers.js";
 
@@ -203,8 +204,8 @@ test("the camera list joins the record with its live status", async ({ page }) =
   // Accessibility renders as a percentage once a verdict exists.
   await expect(row).toContainText(/%/, { timeout: 30_000 });
 
-  // Search filters on name, location and source.
-  const search = page.getByPlaceholder(/search name, location, url/i);
+  // Search filters on name, place (the location hierarchy) and source.
+  const search = page.getByPlaceholder(/search name, place, url/i);
   await search.fill("no-such-exit-xyz");
   await expect(page.getByText(/no exit matches that search/i)).toBeVisible();
   await search.fill(CAMERA_LOCATION);

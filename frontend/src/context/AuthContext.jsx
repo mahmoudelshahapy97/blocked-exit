@@ -7,8 +7,13 @@ import {
   useState,
 } from "react";
 import { auth as authApi, workspaces as workspacesApi } from "../api/endpoints";
-import { errorMessage } from "../api/client";
-import { clearSession, getStoredRefreshToken, setSession } from "../api/tokenStore";
+import { errorMessage, refreshAccessToken } from "../api/client";
+import {
+  clearSession,
+  getAccessToken,
+  getStoredRefreshToken,
+  setSession,
+} from "../api/tokenStore";
 
 const AuthContext = createContext(null);
 
@@ -44,9 +49,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   // On first mount, a stored refresh token means "try to resume the
-  // session" — the axios interceptor mints a new access token from it on the
-  // first authenticated call, so calling /auth/me is enough to both refresh
-  // and hydrate.
+  // session". The access token lives in memory only, so a reloaded tab has
+  // none: mint one first rather than letting /auth/me bounce off a 401.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -55,6 +59,7 @@ export function AuthProvider({ children }) {
         return;
       }
       try {
+        if (!getAccessToken()) await refreshAccessToken();
         await loadProfile();
         if (!cancelled) setStatus("authenticated");
       } catch {

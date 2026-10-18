@@ -1,5 +1,11 @@
-import { expect, test } from "@playwright/test";
-import { API, CAMERA_NAME, collectPageProblems, findCamera } from "./helpers.js";
+import {
+  API,
+  CAMERA_NAME,
+  collectPageProblems,
+  expect,
+  findCamera,
+  test,
+} from "./helpers.js";
 
 /**
  * The rest of the lifecycle: edit an existing exit, acknowledge an alert, stop

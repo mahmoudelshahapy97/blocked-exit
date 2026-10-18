@@ -107,22 +107,53 @@ Full stack in Docker instead: `docker compose up` (set `DATABASE_URL` to the
 > `DATABASE_URL` at the WSL IP instead — `wsl hostname -I` — or run the API in
 > compose too, where it reaches Postgres by service name.
 
+## Accounts, roles and workspaces
+
+Same model as the InsightEye platform:
+
+- **No public signup.** The first account to sign up on a fresh database
+  (`POST /auth/signup`) becomes the **superadmin** and admin of the
+  "Default Workspace". After that, signup is closed (`GET /auth/bootstrap`
+  tells the login page) and a superadmin creates accounts
+  (`POST /auth/users`). `ALLOW_OPEN_SIGNUP=true` lets anyone sign up into the
+  shared Default Workspace as a member.
+- **System roles:** `superadmin` creates users and workspaces and manages
+  every roster; `admin` acts as a workspace admin wherever it is a member;
+  `user` gets its membership role.
+- **Workspace roles:** `viewer` reads everything; `member` also runs cameras
+  and acknowledges/resolves events; `admin` also draws exit regions, sends
+  test alerts and deletes event data. Every workspace keeps at least one admin.
+- **Active workspace.** Each user works in one workspace at a time, stored on
+  the server (`POST /workspaces/{id}/activate`), so every tab and every
+  request agrees. `GET /workspaces/active/permissions` says what the caller may
+  do there.
+
+Login takes a username or an email. Access tokens last 60 minutes; refresh
+tokens 14 days and rotate on every use. A password change or reset signs the
+user out everywhere.
+
 ## Register an exit and start monitoring
 
 `rtsp_url` also accepts a local video file, so the pipeline can be exercised
-without a camera.
+without a camera. Every route except health and the login/signup/refresh/
+bootstrap endpoints needs a bearer token.
 
 ```bash
-curl -X POST localhost:8000/api/v1/cameras -H "Content-Type: application/json" -d '{
+TOKEN=$(curl -s localhost:8000/api/v1/auth/login -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "..."}' | python -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+AUTH="Authorization: Bearer $TOKEN"
+
+curl -X POST localhost:8000/api/v1/cameras -H "$AUTH" -H "Content-Type: application/json" -d '{
   "name": "Exit A - Main Corridor",
-  "location": "Building 1, Floor 1",
+  "location": "Cairo HQ", "building": "Building 1", "floor_level": "1", "zone": "Main corridor",
   "rtsp_url": "rtsp://user:pass@10.0.0.5:554/stream1",
   "enabled": true
 }'
 
-curl -X POST localhost:8000/api/v1/monitoring/1/start
-curl localhost:8000/api/v1/monitoring/1/status
-curl localhost:8000/api/v1/monitoring/1/snapshot -o exit.jpg   # annotated frame
+curl -X POST localhost:8000/api/v1/monitoring/1/start -H "$AUTH"
+curl localhost:8000/api/v1/monitoring/1/status -H "$AUTH"
+curl localhost:8000/api/v1/monitoring/1/snapshot -H "$AUTH" -o exit.jpg   # annotated frame
+curl -X POST localhost:8000/api/v1/cameras/1/probe -H "$AUTH"           # test the connection
 ```
 
 Enabled cameras restart automatically when the API restarts.
@@ -173,18 +204,38 @@ ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/exi
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health`, `/health/ready` | liveness; DB, models, per-worker health |
-| POST/GET/PATCH/DELETE | `/cameras`, `/cameras/{id}` | camera CRUD |
+| GET/POST | `/auth/bootstrap` · `/auth/signup` · `/auth/login` · `/auth/refresh` · `/auth/logout` | sessions (signup only while open) |
+| GET/PATCH/POST | `/auth/me` · `/auth/me/password` | the caller's profile, memberships and active workspace |
+| GET/POST/PATCH | `/auth/users`, `/auth/users/{id}` | superadmin: list, create, change role/active/password |
+| GET | `/workspaces` · `/workspaces/active` · `/workspaces/active/permissions` | the caller's workspaces, the active one, what they may do |
+| POST | `/workspaces/{id}/activate` | switch the active workspace |
+| POST/PATCH/DELETE | `/workspaces`, `/workspaces/{id}`, `/workspaces/{id}/deactivate` | superadmin: workspace lifecycle (delete needs deactivate first) |
+| GET/POST/PATCH/DELETE | `/workspaces/{id}/members[/{member_id}]` | roster (changes: superadmin) |
+| GET | `/workspaces/{id}/cameras` | a workspace's cameras, sources masked |
+| POST/GET/PATCH/DELETE | `/cameras`, `/cameras/{id}` | camera CRUD (location, area, building, floor_level, zone) |
+| GET | `/cameras/hierarchy` | distinct hierarchy values, cascading |
+| POST | `/cameras/{id}/probe` · `/cameras/probe-all` | connection test: reachable, latency, size, fps |
 | PUT | `/cameras/{id}/door-polygon` | set the exit region (pixels or normalized) |
 | GET | `/cameras/{id}/zone-editor` · `/calibration-frame` · `/door-polygon/preview` | draw the region, fetch a clean still, confirm what was stored |
 | POST | `/cameras/{id}/reference` | capture the unobstructed door (door-centric calibration) |
 | POST | `/monitoring/{id}/start` · `/stop` · `/restart` | worker lifecycle |
 | GET | `/monitoring/status` · `/monitoring/{id}/status` | live verdicts |
 | GET | `/monitoring/{id}/snapshot` · `/stream` | annotated JPEG / MJPEG |
-| GET | `/events`, `/events/{id}` | blockage history |
+| GET | `/events`, `/events/{id}`, `/events/{id}/snapshot`, `/events/overview` | blockage history (status, risk, sort, shared filters), evidence frame, dashboard counters |
+| POST | `/events/{id}/acknowledge` · `/events/{id}/resolve` | the detected → acknowledged → resolved workflow |
+| DELETE | `/events?<filters>` · `/events/all?confirm=true` | admin data delete (ongoing events are kept) |
 | GET/POST | `/alerts`, `/alerts/{id}/ack`, `/alerts/test` | alert log, acknowledge, delivery test |
 | GET | `/analytics/summary` · `/most-blocked` · `/{id}/timeline` · `/daily-report` | dashboard data |
+| GET | `/analytics/incidents-per-camera` · `/confidence-audit` · `/trend` · `/heatmap` · `/response-times` · `/breakdown` | the platform's charts |
 
-All under `/api/v1`. Set `API_KEY` in `.env` to require an `X-API-Key` header.
+All under `/api/v1`, all scoped to the caller's active workspace.
+
+**Shared filters.** The event list, data delete and every analytics endpoint
+take the same query parameters: `start_date`/`end_date` (days in
+`REPORT_TIMEZONE`, default Africa/Cairo), `start_time`/`end_time` (with a date
+on the same side, an exact bound; alone, a daily window that may wrap
+midnight), and comma-separated `camera_id`, `location`, `area`, `building`,
+`floor_level`, `zone` (OR within a parameter, AND across them).
 
 ## Tuning
 
@@ -252,7 +303,7 @@ What changes when `ENV=production`:
 | | Behaviour |
 |---|---|
 | `AUTO_CREATE_TABLES=true` or `DEBUG=true` | **startup fails** — both let the app quietly diverge from what Alembic and your logs say is running |
-| `CORS_ORIGINS=*`, no `API_KEY` | warned at startup, not blocked; set both unless a gateway handles them |
+| `CORS_ORIGINS=*` | warned at startup, not blocked; set it unless a gateway handles it |
 | `/docs`, `/redoc`, `/openapi.json` | off (`ENABLE_DOCS=true` re-enables) |
 
 Other operational behaviour, all configurable in `.env`:
@@ -281,10 +332,23 @@ lives in `requirements-dev.txt` and is not installed into the image.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest
+pytest                                   # unit tests; tests/db is skipped
+
+# Postgres-backed suite: a database it may drop and recreate
+docker compose up -d postgres
+# (POSTGRES_PORT from .env; 5433 when using the root docker-compose.yml)
+TEST_DATABASE_URL=postgresql+asyncpg://insighteye:insighteye@localhost:5432/blocked_exit_test pytest
 ```
 
-127 tests, none of which need weights, a database or a network: occupancy math
+`tests/db` (marked `db`) migrates a fresh database with Alembic and drives the
+real app over HTTP: bootstrap signup and closed signup, superadmin-only
+tenancy, workspace activation and the role matrix, the shared filters
+(timezone day boundaries, daily windows across midnight, comma lists),
+connection probes, data delete safety, the event lifecycle and the pipeline
+writing risk and confidence, and every analytics endpoint against
+hand-computed answers.
+
+The unit tests need no weights, database or network: occupancy math
 on synthetic masks, the temporal state machine (driven by a fake clock, so no
 sleeping), risk bands, alert gating and delivery failure, the zone-based
 strategy against a stubbed detector, pixel↔normalized polygon conversion,

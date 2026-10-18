@@ -98,7 +98,7 @@ function WorkspaceSwitcher() {
       value={activeWorkspaceId ?? ""}
       onChange={onChange}
       disabled={busy}
-      aria-label="Workspace"
+      SelectDisplayProps={{ "aria-label": "Workspace" }}
       sx={{ minWidth: 160 }}
     >
       {workspaces.map((w) => (

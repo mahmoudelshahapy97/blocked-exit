@@ -161,8 +161,8 @@
     <select id="camera"></select>
   </div>
   <div>
-    <label for="apikey">API key</label>
-    <input id="apikey" type="password" placeholder="only if API_KEY is set" size="18" />
+    <label for="apikey">Access token</label>
+    <input id="apikey" type="password" placeholder="access_token from POST /auth/login" size="18" />
   </div>
   <button id="reload">Reload frame</button>
 </header>
@@ -234,7 +234,9 @@ function apiKey() {
 function headers(extra) {
   const h = Object.assign({}, extra || {});
   const key = apiKey();
-  if (key) h["X-API-Key"] = key;
+  // Every route needs a bearer token; the editor acts in the account's
+  // active workspace, like the console.
+  if (key) h["Authorization"] = `Bearer ${key}`;
   return h;
 }
 

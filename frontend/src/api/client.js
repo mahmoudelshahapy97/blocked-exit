@@ -43,7 +43,7 @@ let refreshPromise = null;
 
 const TOKEN_ROUTES = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/logout", "/auth/bootstrap"];
 
-async function refreshAccessToken() {
+export async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const refreshToken = getStoredRefreshToken();
