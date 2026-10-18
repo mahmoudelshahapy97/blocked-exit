@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -44,6 +45,11 @@ class User(Base):
     """A person who can log in. Table is app_user: "user" is reserved in Postgres."""
 
     __tablename__ = "app_user"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('superadmin', 'admin', 'user')", name="ck_app_user_role"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
@@ -65,8 +71,14 @@ class User(Base):
     )
 
     @property
-    def is_platform_admin(self) -> bool:
-        return self.role == UserRole.ADMIN.value
+    def is_superadmin(self) -> bool:
+        """Runs the deployment: users, workspaces, every roster."""
+        return self.role == UserRole.SUPERADMIN.value
+
+    @property
+    def is_system_admin(self) -> bool:
+        """Acts as a workspace admin wherever it can act at all."""
+        return self.role in (UserRole.ADMIN.value, UserRole.SUPERADMIN.value)
 
 
 class WorkspaceMember(Base):
@@ -75,6 +87,9 @@ class WorkspaceMember(Base):
     __tablename__ = "workspace_member"
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_workspace_member"),
+        CheckConstraint(
+            "role IN ('admin', 'member', 'viewer')", name="ck_workspace_member_role"
+        ),
         Index("ix_workspace_member_user_workspace", "user_id", "workspace_id"),
     )
 

@@ -2,7 +2,6 @@ import axios from "axios";
 import {
   clearSession,
   getAccessToken,
-  getActiveWorkspaceId,
   getStoredRefreshToken,
   setSession,
 } from "./tokenStore";
@@ -30,10 +29,8 @@ const refreshClient = axios.create({ baseURL: API_BASE, timeout: 20000 });
 client.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
-
-  const workspaceId = getActiveWorkspaceId();
-  if (workspaceId) config.headers["X-Workspace-Id"] = String(workspaceId);
-
+  // No workspace header: the active workspace is stored server-side per user,
+  // so every tab (and every <img> fetch) acts in the same one.
   return config;
 });
 

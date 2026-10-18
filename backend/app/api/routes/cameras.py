@@ -33,17 +33,19 @@ from app.utils.video import grab_single_frame
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
-# Every route needs at least a viewer in the resolved workspace; writes
-# additionally require OperatorDep below.
+# Every route needs at least a viewer in the active workspace. Camera writes
+# need a member; drawing the exit region is a workspace admin's call, as on the
+# platform (PUT /blocked-exit/cameras/{id}/polygon).
 ViewerDep = Depends(require_workspace_role(WorkspaceRole.VIEWER))
-OperatorDep = Depends(require_workspace_role(WorkspaceRole.OPERATOR))
+MemberDep = Depends(require_workspace_role(WorkspaceRole.MEMBER))
+AdminDep = Depends(require_workspace_role(WorkspaceRole.ADMIN))
 
 
 @router.post(
     "",
     response_model=CameraRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[OperatorDep],
+    dependencies=[MemberDep],
 )
 async def create_camera(
     payload: CameraCreate, ctx: WorkspaceDep, session: SessionDep, manager: ManagerDep
@@ -92,7 +94,7 @@ async def get_camera(camera: CameraDep) -> Camera:
     return camera
 
 
-@router.patch("/{camera_id}", response_model=CameraRead, dependencies=[OperatorDep])
+@router.patch("/{camera_id}", response_model=CameraRead, dependencies=[MemberDep])
 async def update_camera(
     payload: CameraUpdate, camera: CameraDep, session: SessionDep, manager: ManagerDep
 ) -> Camera:
@@ -109,7 +111,7 @@ async def update_camera(
 
 
 @router.delete(
-    "/{camera_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[OperatorDep]
+    "/{camera_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[MemberDep]
 )
 async def delete_camera(
     camera: CameraDep, session: SessionDep, manager: ManagerDep
@@ -192,7 +194,7 @@ async def preview_door_polygon(camera: CameraDep, manager: ManagerDep) -> Respon
 
 
 @router.put(
-    "/{camera_id}/door-polygon", response_model=CameraRead, dependencies=[OperatorDep]
+    "/{camera_id}/door-polygon", response_model=CameraRead, dependencies=[AdminDep]
 )
 async def set_door_polygon(
     payload: DoorPolygonUpdate,
@@ -215,7 +217,7 @@ async def set_door_polygon(
 @router.post(
     "/{camera_id}/reference",
     response_model=ReferenceCaptureResponse,
-    dependencies=[OperatorDep],
+    dependencies=[AdminDep],
 )
 async def capture_reference_door(
     camera: CameraDep, session: SessionDep, manager: ManagerDep

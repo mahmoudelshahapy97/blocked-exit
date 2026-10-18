@@ -6,51 +6,40 @@ import {
   useMemo,
   useState,
 } from "react";
-import { auth as authApi } from "../api/endpoints";
+import { auth as authApi, workspaces as workspacesApi } from "../api/endpoints";
 import { errorMessage } from "../api/client";
-import {
-  clearSession,
-  getActiveWorkspaceId,
-  getStoredRefreshToken,
-  setActiveWorkspaceId,
-  setSession,
-  subscribe,
-} from "../api/tokenStore";
+import { clearSession, getStoredRefreshToken, setSession } from "../api/tokenStore";
 
 const AuthContext = createContext(null);
 
 /**
- * Session state for the whole app: who is logged in, which workspace is
- * active, and the actions that change either. Wraps ../api/tokenStore (plain
- * module state, so axios interceptors can read it outside React) and adds the
- * one thing that module cannot: re-rendering components when it changes.
+ * Session state for the whole app: who is logged in, which workspace they are
+ * working in, and what they may do there.
+ *
+ * Like the platform, the active workspace lives on the server (one per user,
+ * shared by every tab) and is switched with POST /workspaces/{id}/activate.
+ * Switching bumps `workspaceVersion`, which AppLayout uses as the page key, so
+ * every page remounts and refetches against the new workspace.
  */
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [memberships, setMemberships] = useState([]);
-  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState(getActiveWorkspaceId());
+  const [workspaces, setWorkspaces] = useState([]);
+  const [permissions, setPermissions] = useState(null);
+  const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [status, setStatus] = useState("loading"); // loading | authenticated | anonymous
   const [error, setError] = useState(null);
-
-  // tokenStore notifies on every setSession/clearSession/workspace change;
-  // mirror the workspace id into component state so switching re-renders.
-  useEffect(() => subscribe(() => setActiveWorkspaceIdState(getActiveWorkspaceId())), []);
 
   const loadProfile = useCallback(async () => {
     const profile = await authApi.me();
     setUser(profile);
-    setMemberships(profile.memberships || []);
     setSession({ user: profile });
-
-    // No workspace selected yet (fresh login, or first load after a reload):
-    // default to the account's own default, falling back to the first
-    // membership so a user with no default configured still sees something.
-    const stored = getActiveWorkspaceId();
-    const known = (profile.memberships || []).some((m) => m.workspace_id === stored);
-    if (!known) {
-      const fallback = profile.default_workspace_id ?? profile.memberships?.[0]?.workspace_id ?? null;
-      setActiveWorkspaceId(fallback);
-    }
+    const [list, perms] = await Promise.all([
+      workspacesApi.list().catch(() => []),
+      // 404 when the account belongs nowhere yet; the layout says so.
+      workspacesApi.permissions().catch(() => null),
+    ]);
+    setWorkspaces(list);
+    setPermissions(perms);
     return profile;
   }, []);
 
@@ -80,48 +69,49 @@ export function AuthProvider({ children }) {
     };
   }, [loadProfile]);
 
+  const startSession = useCallback(
+    async (pair) => {
+      setSession({ accessToken: pair.access_token, refreshToken: pair.refresh_token });
+      await loadProfile();
+      setStatus("authenticated");
+    },
+    [loadProfile]
+  );
+
   const login = useCallback(
-    async ({ username, password, workspaceId }) => {
+    async ({ username, password }) => {
       setError(null);
       try {
-        const pair = await authApi.login({
-          username,
-          password,
-          workspace_id: workspaceId,
-        });
-        setSession({ accessToken: pair.access_token, refreshToken: pair.refresh_token });
-        await loadProfile();
-        setStatus("authenticated");
+        await startSession(await authApi.login({ username, password }));
         return true;
       } catch (err) {
         setError(errorMessage(err));
         return false;
       }
     },
-    [loadProfile]
+    [startSession]
   );
 
   const signup = useCallback(
     async ({ username, email, password, fullName, workspaceName }) => {
       setError(null);
       try {
-        const pair = await authApi.signup({
-          username,
-          email,
-          password,
-          full_name: fullName || undefined,
-          workspace_name: workspaceName || undefined,
-        });
-        setSession({ accessToken: pair.access_token, refreshToken: pair.refresh_token });
-        await loadProfile();
-        setStatus("authenticated");
+        await startSession(
+          await authApi.signup({
+            username,
+            email,
+            password,
+            full_name: fullName || undefined,
+            workspace_name: workspaceName || undefined,
+          })
+        );
         return true;
       } catch (err) {
         setError(errorMessage(err));
         return false;
       }
     },
-    [loadProfile]
+    [startSession]
   );
 
   const logout = useCallback(async () => {
@@ -133,32 +123,41 @@ export function AuthProvider({ children }) {
     }
     clearSession();
     setUser(null);
-    setMemberships([]);
+    setWorkspaces([]);
+    setPermissions(null);
     setStatus("anonymous");
   }, []);
 
-  const switchWorkspace = useCallback((workspaceId) => {
-    setActiveWorkspaceId(workspaceId);
-  }, []);
+  const switchWorkspace = useCallback(
+    async (workspaceId) => {
+      await workspacesApi.activate(workspaceId);
+      await loadProfile();
+      setWorkspaceVersion((v) => v + 1);
+    },
+    [loadProfile]
+  );
 
   const refreshProfile = useCallback(() => loadProfile(), [loadProfile]);
 
-  const activeMembership = useMemo(
-    () => memberships.find((m) => m.workspace_id === activeWorkspaceId) || null,
-    [memberships, activeWorkspaceId]
+  const activeWorkspaceId = user?.active_workspace_id ?? null;
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === activeWorkspaceId) || null,
+    [workspaces, activeWorkspaceId]
   );
 
   const value = useMemo(
     () => ({
       user,
-      memberships,
+      workspaces,
       activeWorkspaceId,
-      activeMembership,
-      // "owner" outranks everything below it — see app.core.enums.WorkspaceRole
-      // on the backend, which this mirrors for UI gating only (the backend
-      // re-checks on every request regardless).
-      workspaceRole: activeMembership?.role ?? null,
-      isPlatformAdmin: user?.role === "admin",
+      activeWorkspace,
+      workspaceVersion,
+      permissions,
+      // Display-only gating; the backend re-checks the role on every request.
+      workspaceRole: permissions?.role ?? null,
+      canResolve: Boolean(permissions?.can_resolve),
+      canManage: Boolean(permissions?.can_manage),
+      isSuperadmin: user?.role === "superadmin",
       status,
       isAuthenticated: status === "authenticated",
       error,
@@ -170,9 +169,11 @@ export function AuthProvider({ children }) {
     }),
     [
       user,
-      memberships,
+      workspaces,
       activeWorkspaceId,
-      activeMembership,
+      activeWorkspace,
+      workspaceVersion,
+      permissions,
       status,
       error,
       login,
@@ -192,7 +193,7 @@ export const useAuth = () => {
   return ctx;
 };
 
-const ROLE_RANK = { viewer: 0, operator: 1, admin: 2, owner: 3 };
+const ROLE_RANK = { viewer: 0, member: 1, admin: 2 };
 
 /** Mirrors WorkspaceRole.can_act_as on the backend — display-only gating. */
 export function roleAtLeast(role, minimum) {

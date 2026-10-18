@@ -15,7 +15,9 @@
  */
 
 const REFRESH_KEY = "blocked-exit:refresh-token";
-const WORKSPACE_KEY = "blocked-exit:workspace-id";
+// Left by builds that kept the active workspace in the browser; the server
+// owns it now (POST /workspaces/{id}/activate). Removed on sign-out.
+const LEGACY_WORKSPACE_KEY = "blocked-exit:workspace-id";
 
 let accessToken = null;
 let currentUser = null;
@@ -47,25 +49,6 @@ export function getStoredRefreshToken() {
   }
 }
 
-export function getActiveWorkspaceId() {
-  try {
-    const raw = localStorage.getItem(WORKSPACE_KEY);
-    return raw ? Number(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function setActiveWorkspaceId(workspaceId) {
-  try {
-    if (workspaceId == null) localStorage.removeItem(WORKSPACE_KEY);
-    else localStorage.setItem(WORKSPACE_KEY, String(workspaceId));
-  } catch {
-    // Non-fatal: the header just falls back to the account's default workspace.
-  }
-  notify();
-}
-
 /** Called after login, signup and refresh. */
 export function setSession({ accessToken: access, refreshToken, user }) {
   accessToken = access ?? accessToken;
@@ -85,7 +68,7 @@ export function clearSession() {
   currentUser = null;
   try {
     localStorage.removeItem(REFRESH_KEY);
-    localStorage.removeItem(WORKSPACE_KEY);
+    localStorage.removeItem(LEGACY_WORKSPACE_KEY);
   } catch {
     /* nothing to clean up if storage never worked */
   }

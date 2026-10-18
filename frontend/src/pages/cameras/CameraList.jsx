@@ -114,7 +114,7 @@ export default function CameraList() {
               onChange={(event) => setSearch(event.target.value)}
               sx={{ minWidth: 240 }}
             />
-            <RoleGate minimum="operator">
+            <RoleGate minimum="member">
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
@@ -143,7 +143,7 @@ export default function CameraList() {
             }
             action={
               !search && (
-                <RoleGate minimum="operator">
+                <RoleGate minimum="member">
                   <Button variant="contained" component={RouterLink} to="/cameras/new">
                     Add exit
                   </Button>
@@ -222,7 +222,7 @@ export default function CameraList() {
                         {status ? formatPct(status.accessibility_pct) : "—"}
                       </TableCell>
                       <TableCell align="right" onClick={(event) => event.stopPropagation()}>
-                        <RoleGate minimum="operator">
+                        <RoleGate minimum="member">
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                             {running ? (
                               <Tooltip title="Stop monitoring">

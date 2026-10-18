@@ -93,10 +93,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
-    # The very first account to sign up becomes a platform admin and owns a
-    # workspace. Turn this off once that account exists and signup becomes
-    # invitation-only.
-    ALLOW_OPEN_SIGNUP: bool = True
+    # Like the platform, accounts are created by a superadmin. The very first
+    # signup is always accepted and becomes that superadmin; with this on, later
+    # signups are accepted too and join the shared "Default Workspace" as members.
+    ALLOW_OPEN_SIGNUP: bool = False
     # Revoked-token rows are only useful until the token would have expired
     # anyway; the retention sweep drops them after that.
     TOKEN_CLEANUP_ENABLED: bool = True

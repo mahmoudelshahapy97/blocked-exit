@@ -10,6 +10,8 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { auth as authApi } from "../../api/endpoints";
+import { useAsync } from "../../hooks/useAsync";
 import { useAuth } from "../../context/AuthContext";
 
 export default function Login() {
@@ -22,6 +24,9 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const from = location.state?.from?.pathname || "/";
+  // Accounts are issued by a superadmin; signup is only offered while the
+  // server says it is open (first-run bootstrap, or ALLOW_OPEN_SIGNUP).
+  const { data: bootstrap } = useAsync((opts) => authApi.bootstrap(opts));
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -83,12 +88,26 @@ export default function Login() {
               >
                 {submitting ? "Signing in…" : "Sign in"}
               </Button>
-              <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
-                No account yet?{" "}
-                <Link component={RouterLink} to="/signup">
-                  Create one
-                </Link>
-              </Typography>
+              {bootstrap?.needs_bootstrap ? (
+                <Alert severity="info">
+                  This deployment has no accounts yet.{" "}
+                  <Link component={RouterLink} to="/signup">
+                    Create the administrator account
+                  </Link>
+                  .
+                </Alert>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
+                  No account?{" "}
+                  {bootstrap?.signup_open ? (
+                    <Link component={RouterLink} to="/signup">
+                      Create one
+                    </Link>
+                  ) : (
+                    "Contact your administrator."
+                  )}
+                </Typography>
+              )}
             </Stack>
           </Box>
         </CardContent>

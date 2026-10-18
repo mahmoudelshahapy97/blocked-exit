@@ -19,15 +19,16 @@ export function ProtectedRoute() {
 }
 
 /**
- * Route guard for platform-admin-only pages (/admin/users). A workspace role
- * is not enough here — this gates on the account's global role.
+ * Route guard for superadmin-only pages (/admin/users, /admin/workspaces). A
+ * workspace role is not enough here — this gates on the account's global role,
+ * as the platform's RequireSuperadmin does.
  */
-export function PlatformAdminRoute() {
-  const { status, isAuthenticated, isPlatformAdmin } = useAuth();
+export function SuperadminRoute() {
+  const { status, isAuthenticated, isSuperadmin } = useAuth();
 
   if (status === "loading") return <Loading label="Checking session…" height="60vh" />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (!isPlatformAdmin) return <Navigate to="/" replace />;
+  if (!isSuperadmin) return <Navigate to="/" replace />;
   return <Outlet />;
 }
 

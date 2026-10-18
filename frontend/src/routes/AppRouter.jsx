@@ -2,7 +2,7 @@ import { Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "../layouts/AppLayout";
 import { Loading } from "../components/DataStates";
-import { ProtectedRoute, PlatformAdminRoute } from "../components/ProtectedRoute";
+import { ProtectedRoute, SuperadminRoute } from "../components/ProtectedRoute";
 
 // Code-split per route: the analytics page pulls in chart.js, which has no
 // business being in the bundle an operator downloads to watch a live exit.
@@ -18,6 +18,7 @@ const Alerts = lazy(() => import("../pages/Alerts"));
 const Analytics = lazy(() => import("../pages/Analytics"));
 const WorkspaceSettings = lazy(() => import("../pages/settings/Workspace"));
 const AdminUsers = lazy(() => import("../pages/admin/Users"));
+const AdminWorkspaces = lazy(() => import("../pages/admin/Workspaces"));
 const NotFound = lazy(() => import("../pages/NotFound"));
 
 export function AppRouter({ mode, onToggleMode }) {
@@ -48,8 +49,10 @@ export function AppRouter({ mode, onToggleMode }) {
               {/* Deep links from the old zone editor used ?camera_id=; keep them working. */}
               <Route path="/zones" element={<Navigate to="/cameras" replace />} />
 
-              <Route element={<PlatformAdminRoute />}>
+              <Route element={<SuperadminRoute />}>
                 <Route path="/admin/users" element={<AdminUsers />} />
+                <Route path="/admin/workspaces" element={<AdminWorkspaces />} />
+                <Route path="/admin/workspaces/:workspaceId" element={<AdminWorkspaces />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

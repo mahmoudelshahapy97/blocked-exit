@@ -34,10 +34,14 @@ import MenuBookIcon from "@mui/icons-material/MenuBook";
 import LogoutIcon from "@mui/icons-material/Logout";
 import SettingsIcon from "@mui/icons-material/Settings";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import WorkspacesIcon from "@mui/icons-material/Workspaces";
 
 import { health } from "../api/endpoints";
+import { errorMessage } from "../api/client";
 import { usePolling } from "../hooks/usePolling";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../components/Toast";
+import { ErrorState } from "../components/DataStates";
 
 const DRAWER_WIDTH = 248;
 
@@ -49,22 +53,50 @@ const NAV_ITEMS = [
   { to: "/analytics", label: "Analytics", icon: <InsightsIcon /> },
 ];
 
-/** Which workspace this session acts in — every camera/event/alert request
- *  carries it as X-Workspace-Id. Hidden entirely when there is only one. */
+/** The workspace every request acts in. Stored server-side per user, like the
+ *  platform's: switching calls /workspaces/{id}/activate. With a single
+ *  workspace it is just a label. */
 function WorkspaceSwitcher() {
-  const { memberships, activeWorkspaceId, switchWorkspace } = useAuth();
-  if (memberships.length <= 1) return null;
+  const { workspaces, activeWorkspaceId, activeWorkspace, switchWorkspace } = useAuth();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  if (!workspaces.length) {
+    return <Chip size="small" color="warning" label="No workspace" />;
+  }
+  if (workspaces.length === 1) {
+    return (
+      <Typography variant="body2" sx={{ fontWeight: 600, display: { xs: "none", sm: "block" } }}>
+        {activeWorkspace?.name ?? workspaces[0].name}
+      </Typography>
+    );
+  }
+
+  const onChange = async (event) => {
+    const next = workspaces.find((w) => w.id === Number(event.target.value));
+    setBusy(true);
+    try {
+      await switchWorkspace(next.id);
+      toast.success(`Switched to ${next.name}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Select
       size="small"
       value={activeWorkspaceId ?? ""}
-      onChange={(e) => switchWorkspace(Number(e.target.value))}
+      onChange={onChange}
+      disabled={busy}
+      aria-label="Workspace"
       sx={{ minWidth: 160 }}
     >
-      {memberships.map((m) => (
-        <MenuItem key={m.workspace_id} value={m.workspace_id}>
-          {m.workspace_name}
+      {workspaces.map((w) => (
+        <MenuItem key={w.id} value={w.id}>
+          {w.name}
         </MenuItem>
       ))}
     </Select>
@@ -72,7 +104,7 @@ function WorkspaceSwitcher() {
 }
 
 function UserMenu() {
-  const { user, workspaceRole, isPlatformAdmin, logout } = useAuth();
+  const { user, workspaceRole, isSuperadmin, logout } = useAuth();
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState(null);
 
@@ -96,8 +128,8 @@ function UserMenu() {
         <ListSubheader sx={{ lineHeight: 1.6 }}>
           {user.full_name || user.username}
           <Typography variant="caption" color="text.secondary" display="block">
-            {user.email} · {workspaceRole || "no role"}
-            {isPlatformAdmin && " · platform admin"}
+            {user.email} · {workspaceRole || "no workspace"}
+            {isSuperadmin && " · superadmin"}
           </Typography>
         </ListSubheader>
         <MenuItem
@@ -108,16 +140,27 @@ function UserMenu() {
           <ListItemIcon>
             <SettingsIcon fontSize="small" />
           </ListItemIcon>
-          Workspace settings
+          Workspace
         </MenuItem>
-        {isPlatformAdmin && (
-          <MenuItem component={NavLink} to="/admin/users" onClick={() => setAnchorEl(null)}>
+        {isSuperadmin && [
+          <MenuItem
+            key="workspaces"
+            component={NavLink}
+            to="/admin/workspaces"
+            onClick={() => setAnchorEl(null)}
+          >
+            <ListItemIcon>
+              <WorkspacesIcon fontSize="small" />
+            </ListItemIcon>
+            Manage workspaces
+          </MenuItem>,
+          <MenuItem key="users" component={NavLink} to="/admin/users" onClick={() => setAnchorEl(null)}>
             <ListItemIcon>
               <AdminPanelSettingsIcon fontSize="small" />
             </ListItemIcon>
-            All users
-          </MenuItem>
-        )}
+            Users
+          </MenuItem>,
+        ]}
         <Divider />
         <MenuItem onClick={handleLogout}>
           <ListItemIcon>
@@ -165,6 +208,9 @@ export function AppLayout({ mode, onToggleMode }) {
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const { workspaceVersion, activeWorkspaceId, isSuperadmin } = useAuth();
+  // Pages a user with no workspace can still use: their own admin screens.
+  const workspaceFree = location.pathname.startsWith("/admin/");
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
@@ -300,7 +346,20 @@ export function AppLayout({ mode, onToggleMode }) {
       >
         <Toolbar />
         <Box sx={{ pt: 3 }}>
-          <Outlet />
+          {activeWorkspaceId || workspaceFree ? (
+            // Keyed on the workspace: switching remounts the page, so nothing
+            // on screen is left over from the workspace that was just left.
+            <Outlet key={workspaceVersion} />
+          ) : (
+            <ErrorState
+              title="No workspace"
+              error={
+                isSuperadmin
+                  ? "There is no active workspace yet. Create one under Manage workspaces."
+                  : "You are not a member of any workspace yet. Ask your administrator to add you."
+              }
+            />
+          )}
         </Box>
       </Box>
     </Box>

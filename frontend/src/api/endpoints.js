@@ -10,6 +10,7 @@ export const health = {
 
 // --- auth -------------------------------------------------------------------
 export const auth = {
+  bootstrap: (opts) => client.get("/auth/bootstrap", opts).then((r) => r.data),
   signup: (payload) => client.post("/auth/signup", payload).then((r) => r.data),
   login: (payload) => client.post("/auth/login", payload).then((r) => r.data),
   refresh: (refreshToken) =>
@@ -20,19 +21,28 @@ export const auth = {
   updateMe: (payload) => client.patch("/auth/me", payload).then((r) => r.data),
   changePassword: (payload) => client.post("/auth/me/password", payload),
 
-  // Platform-admin only.
+  // Superadmin only.
   listUsers: (opts) => client.get("/auth/users", opts).then((r) => r.data),
+  createUser: (payload) => client.post("/auth/users", payload).then((r) => r.data),
   updateUser: (userId, payload) =>
     client.patch(`/auth/users/${userId}`, payload).then((r) => r.data),
 };
 
 // --- workspaces -------------------------------------------------------------
 export const workspaces = {
-  list: (opts) => client.get("/workspaces", opts).then((r) => r.data),
+  list: (params, opts) => client.get("/workspaces", { params, ...opts }).then((r) => r.data),
+  active: (opts) => client.get("/workspaces/active", opts).then((r) => r.data),
+  permissions: (opts) => client.get("/workspaces/active/permissions", opts).then((r) => r.data),
+  activate: (id) => client.post(`/workspaces/${id}/activate`).then((r) => r.data),
   get: (id, opts) => client.get(`/workspaces/${id}`, opts).then((r) => r.data),
+  cameras: (id, opts) => client.get(`/workspaces/${id}/cameras`, opts).then((r) => r.data),
+  members: (id, opts) => client.get(`/workspaces/${id}/members`, opts).then((r) => r.data),
+
+  // Superadmin only.
   create: (payload) => client.post("/workspaces", payload).then((r) => r.data),
   update: (id, payload) => client.patch(`/workspaces/${id}`, payload).then((r) => r.data),
-  members: (id, opts) => client.get(`/workspaces/${id}/members`, opts).then((r) => r.data),
+  deactivate: (id) => client.post(`/workspaces/${id}/deactivate`).then((r) => r.data),
+  remove: (id) => client.delete(`/workspaces/${id}`),
   addMember: (id, payload) =>
     client.post(`/workspaces/${id}/members`, payload).then((r) => r.data),
   updateMember: (id, memberId, role) =>

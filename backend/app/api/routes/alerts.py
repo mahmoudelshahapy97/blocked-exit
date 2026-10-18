@@ -17,7 +17,8 @@ from app.utils.timing import utcnow
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 ViewerDep = [Depends(require_workspace_role(WorkspaceRole.VIEWER))]
-OperatorDep = [Depends(require_workspace_role(WorkspaceRole.OPERATOR))]
+MemberDep = [Depends(require_workspace_role(WorkspaceRole.MEMBER))]
+AdminDep = [Depends(require_workspace_role(WorkspaceRole.ADMIN))]
 
 
 @router.get("", response_model=Page[AlertRead], dependencies=ViewerDep)
@@ -63,7 +64,7 @@ async def list_alerts(
     )
 
 
-@router.post("/{alert_id}/ack", response_model=AlertRead, dependencies=OperatorDep)
+@router.post("/{alert_id}/ack", response_model=AlertRead, dependencies=MemberDep)
 async def acknowledge_alert(
     alert_id: int, payload: AlertAcknowledge, ctx: WorkspaceDep, session: SessionDep
 ) -> Alert:
@@ -79,7 +80,7 @@ async def acknowledge_alert(
     return alert
 
 
-@router.post("/test", response_model=list[AlertRead], dependencies=OperatorDep)
+@router.post("/test", response_model=list[AlertRead], dependencies=AdminDep)
 async def test_alert(
     payload: AlertTestRequest, ctx: WorkspaceDep, session: SessionDep
 ) -> list[Alert]:

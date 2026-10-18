@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Navigate, Link as RouterLink, useNavigate } from "react-router-dom";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -10,7 +10,10 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { auth as authApi } from "../../api/endpoints";
+import { useAsync } from "../../hooks/useAsync";
 import { useAuth } from "../../context/AuthContext";
+import { Loading } from "../../components/DataStates";
 
 const PASSWORD_HELP =
   "At least 10 characters, with three of: lowercase, uppercase, digit, symbol.";
@@ -24,6 +27,7 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const { data: bootstrap, error: bootstrapError } = useAsync((opts) => authApi.bootstrap(opts));
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -32,6 +36,11 @@ export default function Signup() {
     setSubmitting(false);
     if (ok) navigate("/", { replace: true });
   };
+
+  if (!bootstrap && !bootstrapError) return <Loading label="Loading…" height="60vh" />;
+  // Closed signup: there is nothing to fill in here, accounts come from a superadmin.
+  if (bootstrap && !bootstrap.signup_open) return <Navigate to="/login" replace />;
+  const isBootstrap = Boolean(bootstrap?.needs_bootstrap);
 
   return (
     <Box
@@ -48,11 +57,13 @@ export default function Signup() {
         <CardContent sx={{ p: 4 }}>
           <Stack spacing={0.5} sx={{ mb: 3 }}>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>
-              Create an account
+              {isBootstrap ? "Set up InsightEye" : "Create an account"}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              The first account on a fresh deployment becomes its platform
-              administrator and owns the workspace created here.
+              {isBootstrap
+                ? "This first account becomes the superadmin: it creates workspaces " +
+                  "and every other account."
+                : "You will join the shared workspace as a member."}
             </Typography>
           </Stack>
 
@@ -89,13 +100,15 @@ export default function Signup() {
                 required
                 helperText={PASSWORD_HELP}
               />
-              <TextField
-                label="Workspace name"
-                value={workspaceName}
-                onChange={(e) => setWorkspaceName(e.target.value)}
-                fullWidth
-                helperText="Optional — defaults to your username's workspace"
-              />
+              {isBootstrap && (
+                <TextField
+                  label="First workspace name"
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                  fullWidth
+                  helperText='Optional — defaults to "Default Workspace"'
+                />
+              )}
               <Button
                 type="submit"
                 variant="contained"

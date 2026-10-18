@@ -64,11 +64,13 @@ class AlertStatus(StrEnum):
 class UserRole(StrEnum):
     """Platform-wide role, independent of any workspace membership.
 
-    ADMIN is the only role that can reach across workspace boundaries — see
-    `app.api.deps.resolve_workspace`. Everyone else is confined to the
-    workspaces they are a member of, whatever this says.
+    Mirrors the platform's users.role: SUPERADMIN runs the deployment (creates
+    users and workspaces, manages every roster) and may open any workspace.
+    ADMIN acts as a workspace admin inside the workspaces it belongs to, but
+    cannot manage tenancy. USER gets whatever its membership role says.
     """
 
+    SUPERADMIN = "superadmin"
     ADMIN = "admin"
     USER = "user"
 
@@ -76,14 +78,14 @@ class UserRole(StrEnum):
 class WorkspaceRole(StrEnum):
     """What a member may do *inside* one workspace.
 
-    Ordered: OWNER can do everything an ADMIN can, and so on down. Compare with
-    `rank` rather than by name, so a new tier in the middle does not mean
-    revisiting every guard.
+    Same three roles as the platform's workspace_members.role. Ordered: ADMIN
+    can do everything a MEMBER can, and so on down. Compare with `rank` rather
+    than by name, so a new tier in the middle does not mean revisiting every
+    guard.
     """
 
-    OWNER = "owner"
     ADMIN = "admin"
-    OPERATOR = "operator"
+    MEMBER = "member"
     VIEWER = "viewer"
 
     @property
@@ -96,9 +98,8 @@ class WorkspaceRole(StrEnum):
 
 _WORKSPACE_ROLE_RANK = {
     WorkspaceRole.VIEWER: 0,
-    WorkspaceRole.OPERATOR: 1,
+    WorkspaceRole.MEMBER: 1,
     WorkspaceRole.ADMIN: 2,
-    WorkspaceRole.OWNER: 3,
 }
 
 

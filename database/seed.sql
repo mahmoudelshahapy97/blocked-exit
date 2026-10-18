@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- InsightEye — Blocked Exit Detection : development seed
 --
--- One demo workspace, one admin account inside it, four exits with a spread
+-- One demo workspace, one account per role inside it, four exits with a spread
 -- of states, plus enough event and alert history for the analytics pages to
 -- have something to aggregate. Timestamps are relative to now(), so the
 -- "last 24 hours" and "last 7 days" windows are populated whenever this is
@@ -17,7 +17,10 @@
 -- fabricated incident history; never load it into a database anyone relies
 -- on, and change the password immediately if you ever do.
 --
---   Login: demo.admin / ChangeMe123!
+--   Logins (all with password ChangeMe123!):
+--     demo.admin   superadmin, admin of the demo workspace
+--     demo.member  member  (runs cameras, acknowledges and resolves events)
+--     demo.viewer  viewer  (read-only)
 -- ---------------------------------------------------------------------------
 
 BEGIN;
@@ -30,25 +33,33 @@ ON CONFLICT (slug) DO UPDATE SET
     description = EXCLUDED.description,
     updated_at  = now();
 
--- --- admin user ----------------------------------------------------------------
+-- --- users -----------------------------------------------------------------------
 -- Password: ChangeMe123!  (argon2id hash below — regenerate with
 -- `python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('...'))"`
 -- if you want a different seeded password.)
 INSERT INTO app_user (username, email, full_name, password_hash, role, is_active, default_workspace_id)
 SELECT
-    'demo.admin', 'demo.admin@example.com', 'Demo Admin',
+    v.username, v.username || '@example.com', v.full_name,
     '$argon2id$v=19$m=65536,t=3,p=4$OYd43yT0KdsXT4UQSeJZdQ$sB6DzbM34JCPPynCkdykhnSKvenxqMHQiN7NAjL9juI',
-    'admin', TRUE, w.id
-FROM workspace w WHERE w.slug = 'demo'
+    v.role, TRUE, w.id
+FROM workspace w,
+     (VALUES ('demo.admin',  'Demo Admin',  'superadmin'),
+             ('demo.member', 'Demo Member', 'user'),
+             ('demo.viewer', 'Demo Viewer', 'user')) AS v (username, full_name, role)
+WHERE w.slug = 'demo'
 ON CONFLICT (username) DO UPDATE SET
     email      = EXCLUDED.email,
     full_name  = EXCLUDED.full_name,
+    role       = EXCLUDED.role,
     updated_at = now();
 
 INSERT INTO workspace_member (workspace_id, user_id, role)
-SELECT w.id, u.id, 'owner'
-FROM workspace w, app_user u
-WHERE w.slug = 'demo' AND u.username = 'demo.admin'
+SELECT w.id, u.id, v.ws_role
+FROM workspace w,
+     (VALUES ('demo.admin', 'admin'), ('demo.member', 'member'), ('demo.viewer', 'viewer'))
+         AS v (username, ws_role)
+     JOIN app_user u ON u.username = v.username
+WHERE w.slug = 'demo'
 ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role;
 
 -- --- cameras ---------------------------------------------------------------

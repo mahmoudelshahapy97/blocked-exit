@@ -151,19 +151,18 @@ def test_stream_ticket_is_rejected_as_an_access_token():
 
 # -- workspace role ranking -----------------------------------------------------
 def test_workspace_role_rank_is_ordered():
-    assert WorkspaceRole.VIEWER.rank < WorkspaceRole.OPERATOR.rank
-    assert WorkspaceRole.OPERATOR.rank < WorkspaceRole.ADMIN.rank
-    assert WorkspaceRole.ADMIN.rank < WorkspaceRole.OWNER.rank
+    assert WorkspaceRole.VIEWER.rank < WorkspaceRole.MEMBER.rank
+    assert WorkspaceRole.MEMBER.rank < WorkspaceRole.ADMIN.rank
 
 
 @pytest.mark.parametrize(
     ("actual", "required", "expected"),
     [
-        (WorkspaceRole.OWNER, WorkspaceRole.VIEWER, True),
-        (WorkspaceRole.OWNER, WorkspaceRole.OWNER, True),
-        (WorkspaceRole.VIEWER, WorkspaceRole.OPERATOR, False),
-        (WorkspaceRole.OPERATOR, WorkspaceRole.OPERATOR, True),
-        (WorkspaceRole.ADMIN, WorkspaceRole.OWNER, False),
+        (WorkspaceRole.ADMIN, WorkspaceRole.VIEWER, True),
+        (WorkspaceRole.ADMIN, WorkspaceRole.ADMIN, True),
+        (WorkspaceRole.VIEWER, WorkspaceRole.MEMBER, False),
+        (WorkspaceRole.MEMBER, WorkspaceRole.MEMBER, True),
+        (WorkspaceRole.MEMBER, WorkspaceRole.ADMIN, False),
     ],
 )
 def test_can_act_as(actual: WorkspaceRole, required: WorkspaceRole, expected: bool):

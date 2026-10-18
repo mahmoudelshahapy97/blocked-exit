@@ -42,7 +42,9 @@ class Camera(Base):
     # Normalized to [0, 1] so the region survives a change of resolution.
     door_polygon: Mapped[list | None] = mapped_column(JSONB)
     reference_bbox: Mapped[list | None] = mapped_column(JSONB)
-    reference_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reference_captured_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
 
     # Per-camera overrides; NULL inherits the global setting.
     clear_min_pct: Mapped[float | None] = mapped_column(Float)

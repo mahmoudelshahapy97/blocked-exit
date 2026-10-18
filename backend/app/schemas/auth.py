@@ -101,19 +101,27 @@ class UserProfile(UserRead):
     """`/auth/me` — the user plus everywhere they can go."""
 
     memberships: list[MembershipRead] = Field(default_factory=list)
+    active_workspace_id: int | None = Field(
+        None, description="The workspace every request currently acts in"
+    )
 
 
-class SignupRequest(BaseModel):
+class BootstrapStatus(BaseModel):
+    """What the login page should offer before anyone is signed in."""
+
+    signup_open: bool = Field(
+        description="POST /auth/signup will accept a new account right now"
+    )
+    needs_bootstrap: bool = Field(
+        description="No account exists yet; the first signup becomes superadmin"
+    )
+
+
+class _NewAccount(BaseModel):
     username: str = Field(min_length=3, max_length=64)
     email: EmailStr
     password: str
     full_name: str | None = Field(None, max_length=160)
-    workspace_name: str | None = Field(
-        None,
-        max_length=120,
-        description="Name for the workspace created alongside this account. "
-        "Defaults to the username.",
-    )
 
     @field_validator("username")
     @classmethod
@@ -128,6 +136,26 @@ class SignupRequest(BaseModel):
     @classmethod
     def _check_password(cls, value: str) -> str:
         return _validate_password(value)
+
+
+class SignupRequest(_NewAccount):
+    workspace_name: str | None = Field(
+        None,
+        max_length=120,
+        description="Bootstrap only: name for the first workspace. "
+        'Defaults to "Default Workspace".',
+    )
+
+
+class UserCreate(_NewAccount):
+    """A superadmin creating an account (the platform has no self-service
+    signup past the first account)."""
+
+    role: UserRole = UserRole.USER
+    workspace_id: int | None = Field(
+        None, description="Add the account to this workspace and make it active there"
+    )
+    workspace_role: WorkspaceRole = WorkspaceRole.MEMBER
 
 
 class LoginRequest(BaseModel):
@@ -157,7 +185,16 @@ class PasswordChange(BaseModel):
 
 
 class UserAdminUpdate(BaseModel):
-    """Platform-admin edits to somebody else's account."""
+    """Superadmin edits to somebody else's account."""
 
+    full_name: str | None = Field(None, max_length=160)
     role: UserRole | None = None
     is_active: bool | None = None
+    password: str | None = Field(
+        None, description="Set a new password; signs the user out everywhere"
+    )
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_password(value)

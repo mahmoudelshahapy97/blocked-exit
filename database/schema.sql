@@ -1,8 +1,8 @@
 -- ---------------------------------------------------------------------------
 -- InsightEye — Blocked Exit Detection : schema
 --
--- Mirrors backend/alembic/versions/0001_initial_schema.py and
--- 0002_auth_and_workspaces.py exactly. Alembic remains the source of truth for
+-- Mirrors backend/alembic/versions/ (0001 through the newest revision named in
+-- the stamp note at the foot of this file) exactly. Alembic remains the source of truth for
 -- a running deployment; this file exists for the cases Alembic cannot serve —
 -- reviewing the shape of the database without a Python environment,
 -- provisioning a read-replica or reporting schema, and diffing what is
@@ -53,14 +53,18 @@ CREATE TABLE IF NOT EXISTS app_user (
     full_name            VARCHAR(160),
 
     password_hash        VARCHAR(255) NOT NULL,   -- argon2
-    -- Platform-wide role, independent of any workspace membership.
-    -- 'admin' | 'user'.
-    role                 VARCHAR(16)  NOT NULL DEFAULT 'user',
+    -- Platform-wide role, independent of any workspace membership, as on the
+    -- InsightEye platform: 'superadmin' runs the deployment (users, workspaces,
+    -- rosters) and may open any workspace; 'admin' acts as a workspace admin
+    -- wherever it is a member; 'user' gets its membership role.
+    role                 VARCHAR(16)  NOT NULL DEFAULT 'user'
+        CONSTRAINT ck_app_user_role CHECK (role IN ('superadmin', 'admin', 'user')),
     is_active            BOOLEAN      NOT NULL DEFAULT TRUE,
 
-    -- Which workspace this user lands in at login when they belong to
-    -- several. ON DELETE SET NULL: losing a workspace must not delete the
-    -- person who was looking at it.
+    -- The user's ACTIVE workspace: every request acts in it, and it is
+    -- switched server-side (POST /workspaces/{id}/activate), so all of a
+    -- user's sessions agree. ON DELETE SET NULL: losing a workspace must not
+    -- delete the person who was looking at it.
     default_workspace_id INTEGER
         REFERENCES workspace (id) ON DELETE SET NULL,
 
@@ -78,20 +82,22 @@ CREATE        INDEX IF NOT EXISTS ix_app_user_default_workspace_id ON app_user (
 -- ---------------------------------------------------------------------------
 -- workspace_member — one user's role in one workspace
 --
--- 'owner' | 'admin' | 'operator' | 'viewer', ranked in that order — see
--- app.core.enums.WorkspaceRole. A user may belong to several workspaces with
--- a different role in each, so authorisation is always the pair
--- (user, workspace), never the user alone.
+-- 'admin' | 'member' | 'viewer', ranked in that order — the platform's
+-- workspace roles, see app.core.enums.WorkspaceRole. A user may belong to
+-- several workspaces with a different role in each, so authorisation is always
+-- the pair (user, workspace), never the user alone. Only a superadmin edits
+-- this table; every workspace keeps at least one admin.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS workspace_member (
     id           SERIAL PRIMARY KEY,
     workspace_id INTEGER     NOT NULL REFERENCES workspace (id) ON DELETE CASCADE,
     user_id      INTEGER     NOT NULL REFERENCES app_user (id) ON DELETE CASCADE,
-    role         VARCHAR(16) NOT NULL DEFAULT 'viewer',
+    role         VARCHAR(16) NOT NULL DEFAULT 'member',
 
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT uq_workspace_member UNIQUE (workspace_id, user_id)
+    CONSTRAINT uq_workspace_member UNIQUE (workspace_id, user_id),
+    CONSTRAINT ck_workspace_member_role CHECK (role IN ('admin', 'member', 'viewer'))
 );
 
 CREATE INDEX IF NOT EXISTS ix_workspace_member_workspace_id     ON workspace_member (workspace_id);
@@ -269,13 +275,13 @@ COMMIT;
 -- file has the tables but no version row, so `alembic upgrade head` would try
 -- to create them a second time and fail. Stamp it instead:
 --
---   alembic stamp 0002
+--   alembic stamp 0003
 --
 -- Equivalent to, from psql:
 --
 --   CREATE TABLE IF NOT EXISTS alembic_version (
 --       version_num VARCHAR(32) NOT NULL CONSTRAINT alembic_version_pkc PRIMARY KEY
 --   );
---   INSERT INTO alembic_version (version_num) VALUES ('0002')
+--   INSERT INTO alembic_version (version_num) VALUES ('0003')
 --       ON CONFLICT DO NOTHING;
 -- ---------------------------------------------------------------------------
