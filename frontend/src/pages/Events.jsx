@@ -198,7 +198,14 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
         url = objectUrl;
         setSnapshot(objectUrl);
       })
-      .catch((err) => setSnapshotError(errorMessage(err)));
+      .catch((err) => {
+        // A blob response hides the server's JSON message; say what a 404 means.
+        if (err?.response?.status === 404) {
+          setSnapshotError("Snapshot no longer available (retention may have removed it).");
+        } else {
+          setSnapshotError(errorMessage(err));
+        }
+      });
     return () => {
       controller.abort();
       if (url) URL.revokeObjectURL(url);

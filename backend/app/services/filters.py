@@ -131,6 +131,19 @@ class EventFilters:
             )
         return out
 
+    def camera_conditions(self, workspace_id: int) -> list[ColumnElement[bool]]:
+        """The camera and hierarchy part only, as WHERE clauses on Camera --
+        for reports that list cameras, including those without events."""
+        out: list[ColumnElement[bool]] = [Camera.workspace_id == workspace_id]
+        if self.camera_ids:
+            out.append(Camera.id.in_(self.camera_ids))
+        out.extend(
+            getattr(Camera, level).in_(values)
+            for level in HIERARCHY
+            if (values := getattr(self, level))
+        )
+        return out
+
     def where(self, workspace_id: int) -> ColumnElement[bool]:
         return and_(*self.conditions(workspace_id))
 

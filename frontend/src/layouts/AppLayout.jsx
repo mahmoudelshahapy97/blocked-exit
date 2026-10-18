@@ -53,6 +53,13 @@ const NAV_ITEMS = [
   { to: "/analytics", label: "Analytics", icon: <InsightsIcon /> },
 ];
 
+/** Pages reached from the user menu rather than the drawer. */
+const OTHER_TITLES = {
+  "/admin/workspaces": "Workspaces",
+  "/admin/users": "Users",
+  "/settings/workspace": "Workspace",
+};
+
 /** The workspace every request acts in. Stored server-side per user, like the
  *  platform's: switching calls /workspaces/{id}/activate. With a single
  *  workspace it is just a label. */
@@ -273,7 +280,9 @@ export function AppLayout({ mode, onToggleMode }) {
   const currentTitle =
     NAV_ITEMS.find((item) =>
       item.end ? location.pathname === item.to : location.pathname.startsWith(item.to)
-    )?.label || "Blocked exit detection";
+    )?.label ||
+    Object.entries(OTHER_TITLES).find(([path]) => location.pathname.startsWith(path))?.[1] ||
+    "Blocked exit detection";
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
@@ -339,6 +348,10 @@ export function AppLayout({ mode, onToggleMode }) {
         component="main"
         sx={{
           flexGrow: 1,
+          // Without this a flex child grows to its widest content, and a wide
+          // table or the heatmap would scroll the whole page sideways on a
+          // phone instead of scrolling inside its own card.
+          minWidth: 0,
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           px: { xs: 2, md: 3 },
           pb: 4,

@@ -41,6 +41,8 @@ client.interceptors.request.use((config) => {
  */
 let refreshPromise = null;
 
+const TOKEN_ROUTES = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/logout", "/auth/bootstrap"];
+
 async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -60,7 +62,10 @@ client.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { config, response } = error;
-    const isAuthRoute = config?.url?.startsWith("/auth/");
+    // Only the endpoints that issue or end tokens are exempt. /auth/me is a
+    // normal authenticated call -- it is how a reloaded tab, whose in-memory
+    // access token is gone, resumes the session from the refresh token.
+    const isAuthRoute = TOKEN_ROUTES.some((route) => config?.url?.startsWith(route));
 
     // Only ever retry once: config._retried stops a second 401 from the
     // retried request itself looping back through here forever.

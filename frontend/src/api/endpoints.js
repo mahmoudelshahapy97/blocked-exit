@@ -170,19 +170,36 @@ export const alerts = {
 
 // --- analytics ------------------------------------------------------------
 export const analytics = {
-  summary: (days = 7, opts) =>
-    client.get("/analytics/summary", { params: { days }, ...opts }).then((r) => r.data),
+  summary: (days = 7, opts, filters = {}) =>
+    client
+      .get("/analytics/summary", { params: { days, ...filters }, ...opts })
+      .then((r) => r.data),
   mostBlocked: (days = 7, limit = 10, opts) =>
     client
       .get("/analytics/most-blocked", { params: { days, limit }, ...opts })
       .then((r) => r.data),
-  dailyReport: (reportDate, opts) =>
+  dailyReport: (reportDate, opts, filters = {}) =>
     client
       .get("/analytics/daily-report", {
-        params: reportDate ? { report_date: reportDate } : {},
+        params: { ...filters, ...(reportDate ? { report_date: reportDate } : {}) },
         ...opts,
       })
       .then((r) => r.data),
+  // The platform's charts; `filters` is the EventFilterBar value.
+  incidentsPerCamera: (filters, opts) =>
+    client.get("/analytics/incidents-per-camera", { params: filters, ...opts }).then((r) => r.data),
+  confidenceAudit: (filters, opts) =>
+    client.get("/analytics/confidence-audit", { params: filters, ...opts }).then((r) => r.data),
+  trend: (filters, bucket, opts) =>
+    client
+      .get("/analytics/trend", { params: { ...filters, ...(bucket ? { bucket } : {}) }, ...opts })
+      .then((r) => r.data),
+  heatmap: (filters, opts) =>
+    client.get("/analytics/heatmap", { params: filters, ...opts }).then((r) => r.data),
+  responseTimes: (filters, opts) =>
+    client.get("/analytics/response-times", { params: filters, ...opts }).then((r) => r.data),
+  breakdown: (filters, opts) =>
+    client.get("/analytics/breakdown", { params: filters, ...opts }).then((r) => r.data),
   timeline: (cameraId, days = 7, limit = 200, opts) =>
     client
       .get(`/analytics/${cameraId}/timeline`, { params: { days, limit }, ...opts })
