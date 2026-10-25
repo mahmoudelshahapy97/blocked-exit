@@ -56,7 +56,9 @@ test("registering an exit against the test clip lands on the zone editor", async
   const problems = collectPageProblems(page);
 
   await page.goto("/cameras");
-  await page.getByRole("link", { name: /add exit/i }).click();
+  // On an empty list the page offers "Add exit" twice (header and empty
+  // state); which one exists depends on whether the list has loaded yet.
+  await page.getByRole("link", { name: /add exit/i }).first().click();
   await expect(page).toHaveURL(/\/cameras\/new$/);
 
   await page.getByLabel("Name").fill(CAMERA_NAME);
