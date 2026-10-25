@@ -14,9 +14,7 @@ import { auth as authApi } from "../../api/endpoints";
 import { useAsync } from "../../hooks/useAsync";
 import { useAuth } from "../../context/AuthContext";
 import { Loading } from "../../components/DataStates";
-
-const PASSWORD_HELP =
-  "At least 10 characters, with three of: lowercase, uppercase, digit, symbol.";
+import { PASSWORD_HELP } from "../../utils/constants";
 
 export default function Signup() {
   const { signup, error: authError } = useAuth();

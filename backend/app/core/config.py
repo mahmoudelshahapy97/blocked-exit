@@ -100,6 +100,12 @@ class Settings(BaseSettings):
     # Revoked-token rows are only useful until the token would have expired
     # anyway; the retention sweep drops them after that.
     TOKEN_CLEANUP_ENABLED: bool = True
+    # "Forgot your password?": a one-time code mailed to the account's email
+    # (app/services/otp.py), over the same SMTP settings as alert email. Off
+    # while SMTP_HOST is empty.
+    OTP_TTL_SECONDS: int = 600
+    OTP_RESEND_SECONDS: int = 60
+    OTP_MAX_ATTEMPTS: int = 5
 
     # --- Database --------------------------------------------------------
     DATABASE_URL: str = (
@@ -266,6 +272,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENV.strip().lower() in {"production", "prod"}
+
+    @property
+    def password_reset_enabled(self) -> bool:
+        return bool(self.SMTP_HOST)
 
     @property
     def docs_enabled(self) -> bool:

@@ -20,6 +20,13 @@ export const auth = {
   me: (opts) => client.get("/auth/me", opts).then((r) => r.data),
   updateMe: (payload) => client.patch("/auth/me", payload).then((r) => r.data),
   changePassword: (payload) => client.post("/auth/me/password", payload),
+  // "Forgot your password?": mail a code, then spend it on a new password.
+  forgotPassword: (email) =>
+    client.post("/auth/forgot-password", { email }).then((r) => r.data),
+  resetPassword: ({ email, code, newPassword }) =>
+    client
+      .post("/auth/reset-password", { email, code, new_password: newPassword })
+      .then((r) => r.data),
 
   // Superadmin only.
   listUsers: (opts) => client.get("/auth/users", opts).then((r) => r.data),

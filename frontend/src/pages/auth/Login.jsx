@@ -24,6 +24,8 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false);
 
   const from = location.state?.from?.pathname || "/";
+  // Set by the password reset page on its way back here.
+  const notice = location.state?.notice;
   // Accounts are issued by a superadmin; signup is only offered while the
   // server says it is open (first-run bootstrap, or ALLOW_OPEN_SIGNUP).
   const { data: bootstrap } = useAsync((opts) => authApi.bootstrap(opts));
@@ -59,6 +61,7 @@ export default function Login() {
 
           <Box component="form" onSubmit={handleSubmit}>
             <Stack spacing={2.5}>
+              {notice && !authError && <Alert severity="success">{notice}</Alert>}
               {authError && <Alert severity="error">{authError}</Alert>}
 
               <TextField
@@ -79,6 +82,18 @@ export default function Login() {
                 fullWidth
                 required
               />
+              {bootstrap?.password_reset && (
+                <Link
+                  component={RouterLink}
+                  to="/forgot-password"
+                  // An email typed as the login carries over to the reset form.
+                  state={{ email: username.includes("@") ? username.trim() : "" }}
+                  variant="body2"
+                  sx={{ alignSelf: "flex-end" }}
+                >
+                  Forgot your password?
+                </Link>
+              )}
               <Button
                 type="submit"
                 variant="contained"

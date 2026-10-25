@@ -34,6 +34,7 @@ def pytest_collection_modifyitems(items):
 
 
 TABLES = (
+    "password_otp",
     "alert",
     "blockage_event",
     "camera",

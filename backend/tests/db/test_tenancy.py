@@ -18,7 +18,11 @@ async def _workspace(client, token, name="Site B") -> int:
 # -- signup ---------------------------------------------------------------------
 async def test_first_signup_bootstraps_a_superadmin_then_signup_closes(client):
     status = (await client.get("/auth/bootstrap")).json()
-    assert status == {"signup_open": True, "needs_bootstrap": True}
+    assert status == {
+        "signup_open": True,
+        "needs_bootstrap": True,
+        "password_reset": False,
+    }
 
     response = await client.post(
         "/auth/signup",
@@ -42,6 +46,7 @@ async def test_first_signup_bootstraps_a_superadmin_then_signup_closes(client):
     assert (await client.get("/auth/bootstrap")).json() == {
         "signup_open": False,
         "needs_bootstrap": False,
+        "password_reset": False,
     }
     second = await client.post(
         "/auth/signup",

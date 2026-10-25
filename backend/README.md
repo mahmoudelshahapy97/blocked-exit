@@ -70,6 +70,8 @@ app/
 │   ├── temporal.py        debounce/hysteresis state machine
 │   ├── risk.py            0–100 risk score
 │   ├── alerting.py        webhook + SMTP, duration gate, cooldown
+│   ├── auth.py            accounts, workspaces, tokens, password change/reset
+│   ├── otp.py             emailed password reset codes (HMAC, expiry, attempts)
 │   ├── annotator.py       explainable overlays
 │   ├── retention.py       expire old events, alerts and snapshots
 │   └── analytics.py       aggregation queries
@@ -132,11 +134,29 @@ Login takes a username or an email. Access tokens last 60 minutes; refresh
 tokens 14 days and rotate on every use. A password change or reset signs the
 user out everywhere.
 
+**Forgot your password?** Once `SMTP_HOST` is set, the login page offers a
+reset by emailed code (`GET /auth/bootstrap` reports `password_reset`):
+
+1. `POST /auth/forgot-password {"email"}` mails a 6-digit code. The answer is
+   the same whether or not the account exists, and the mail is sent after the
+   response, so neither tells an outsider who has an account.
+2. `POST /auth/reset-password {"email", "code", "new_password"}` checks the
+   code and sets the password in one step, then signs the account out
+   everywhere. There is no separate "verify" call whose success could be
+   spent later.
+
+Codes are stored only as an HMAC keyed with `SECRET_KEY` (table
+`password_otp`, one row per account). A code expires after `OTP_TTL_SECONDS`
+(10 min) and works once. Asking again within `OTP_RESEND_SECONDS` (60 s) sends
+nothing, a new code replaces the old one, and `OTP_MAX_ATTEMPTS` (5) wrong
+guesses burn it. Without SMTP both routes answer 503 and an admin resets
+passwords from the Users page.
+
 ## Register an exit and start monitoring
 
 `rtsp_url` also accepts a local video file, so the pipeline can be exercised
 without a camera. Every route except health and the login/signup/refresh/
-bootstrap endpoints needs a bearer token.
+bootstrap and password reset endpoints needs a bearer token.
 
 ```bash
 TOKEN=$(curl -s localhost:8000/api/v1/auth/login -H "Content-Type: application/json" \
@@ -206,6 +226,7 @@ ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/exi
 | GET | `/health`, `/health/ready` | liveness; DB, models, per-worker health |
 | GET/POST | `/auth/bootstrap` · `/auth/signup` · `/auth/login` · `/auth/refresh` · `/auth/logout` | sessions (signup only while open) |
 | GET/PATCH/POST | `/auth/me` · `/auth/me/password` | the caller's profile, memberships and active workspace |
+| POST | `/auth/forgot-password` · `/auth/reset-password` | public: password reset by emailed code (needs SMTP) |
 | GET/POST/PATCH | `/auth/users`, `/auth/users/{id}` | superadmin: list, create, change role/active/password |
 | GET | `/workspaces` · `/workspaces/active` · `/workspaces/active/permissions` | the caller's workspaces, the active one, what they may do |
 | POST | `/workspaces/{id}/activate` | switch the active workspace |
@@ -344,7 +365,9 @@ TEST_DATABASE_URL=postgresql+asyncpg://insighteye:insighteye@localhost:5432/bloc
 real app over HTTP: bootstrap signup and closed signup, superadmin-only
 tenancy, workspace activation and the role matrix, the shared filters
 (timezone day boundaries, daily windows across midnight, comma lists),
-connection probes, data delete safety, the event lifecycle and the pipeline
+connection probes, data delete safety, password reset by emailed code
+(single use, expiry, resend window, attempt limit, no account oracle), the
+event lifecycle and the pipeline
 writing risk and confidence, and every analytics endpoint against
 hand-computed answers.
 

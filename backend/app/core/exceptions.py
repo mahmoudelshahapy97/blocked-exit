@@ -56,6 +56,13 @@ class ForbiddenError(AppError):
     code = "forbidden"
 
 
+class NotConfiguredError(AppError):
+    """A feature that needs setup the deployment does not have (e.g. SMTP)."""
+
+    status_code = 503
+    code = "not_configured"
+
+
 class StreamError(AppError):
     status_code = 503
     code = "stream_error"

@@ -115,6 +115,10 @@ class BootstrapStatus(BaseModel):
     needs_bootstrap: bool = Field(
         description="No account exists yet; the first signup becomes superadmin"
     )
+    password_reset: bool = Field(
+        False,
+        description='"Forgot your password?" by emailed code is set up (SMTP configured)',
+    )
 
 
 class _NewAccount(BaseModel):
@@ -182,6 +186,27 @@ class PasswordChange(BaseModel):
     @classmethod
     def _check_password(cls, value: str) -> str:
         return _validate_password(value)
+
+
+class ForgotPasswordRequest(BaseModel):
+    # A plain str, not EmailStr: a malformed address gets the same answer as an
+    # unknown one, instead of a 422 that tells the two cases apart.
+    email: str = Field(min_length=3, max_length=255)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    code: str = Field(min_length=4, max_length=12)
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_password(cls, value: str) -> str:
+        return _validate_password(value)
+
+
+class MessageResponse(BaseModel):
+    message: str
 
 
 class UserAdminUpdate(BaseModel):

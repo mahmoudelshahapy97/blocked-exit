@@ -41,7 +41,15 @@ client.interceptors.request.use((config) => {
  */
 let refreshPromise = null;
 
-const TOKEN_ROUTES = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/logout", "/auth/bootstrap"];
+const TOKEN_ROUTES = [
+  "/auth/login",
+  "/auth/signup",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/bootstrap",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+];
 
 export async function refreshAccessToken() {
   if (!refreshPromise) {

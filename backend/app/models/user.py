@@ -1,4 +1,5 @@
-"""Tenancy and identity: workspace, app_user, workspace_member, revoked_token."""
+"""Tenancy and identity: workspace, app_user, workspace_member, revoked_token,
+password_otp."""
 
 from __future__ import annotations
 
@@ -122,5 +123,25 @@ class RevokedToken(Base):
     reason: Mapped[str | None] = mapped_column(String(120))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     revoked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class PasswordOtp(Base):
+    """The one live password reset code of an account, stored only as an HMAC.
+
+    One row per user: a new code replaces the old, so only the latest email
+    works. See app/services/otp.py.
+    """
+
+    __tablename__ = "password_otp"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True
+    )
+    otp_hash: Mapped[str] = mapped_column(String(64))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_sent_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

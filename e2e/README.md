@@ -78,6 +78,11 @@ takes it back down.
 | `03-observability.spec.js` | dashboard cards, `/monitoring/status`, the event log and its filters, acknowledging and resolving an event from its drawer (skipped when the clip produced no event), the alert log, `/alerts/test`, the analytics roll-up and every analytics tab, and that the worker keeps advancing |
 | `04-teardown.spec.js` | editing an exit, acknowledging an alert, stopping the worker, deleting the camera |
 | `05-tenancy.spec.js` | a superadmin creating a workspace and a viewer from the console, closed signup, the viewer's read-only console, switching the active workspace, deactivating and deleting the workspace |
+| `06-password-reset.spec.js` | "Forgot your password?" from the login page, the emailed code (read from Mailpit), a wrong code refused, the new password working and the old one not, and an unknown email getting the same answer with no mail. Skipped unless the API has `SMTP_HOST` set and `MAILPIT_URL` points at the inbox (see below) |
+
+To run 06, point the API's SMTP at a [Mailpit](https://mailpit.axllent.org)
+container (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_USE_TLS=false`) and
+pass its API address to the suite, e.g. `MAILPIT_URL=http://localhost:8025`.
 
 Assertions cross-check the UI against the API rather than trusting either
 alone: the console can render a stale number, and the API can be right about

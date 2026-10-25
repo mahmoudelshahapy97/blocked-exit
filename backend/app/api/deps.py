@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends
@@ -19,7 +18,6 @@ from app.models.camera import Camera
 from app.models.user import User, Workspace
 from app.services import auth as auth_service
 from app.services.stream_manager import StreamManager, stream_manager
-from app.utils.timing import utcnow
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -67,14 +65,8 @@ async def get_current_user(
     # A password change (or an admin-forced logout) stamps a cutoff row; any
     # access token minted before that moment must stop working immediately,
     # not linger until its own expiry.
-    cutoff = await auth_service.latest_cutoff(session, user.id)
-    issued_at = claims.get("iat")
-    if cutoff is not None and issued_at is not None:
-        token_issued = datetime.fromtimestamp(
-            issued_at, tz=cutoff.tzinfo or utcnow().tzinfo
-        )
-        if token_issued < cutoff:
-            raise AuthError("Session has been invalidated, please log in again")
+    if await auth_service.issued_before_cutoff(session, user.id, claims.get("iat")):
+        raise AuthError("Session has been invalidated, please log in again")
 
     return user
 

@@ -8,6 +8,7 @@ import { ProtectedRoute, SuperadminRoute } from "../components/ProtectedRoute";
 // business being in the bundle an operator downloads to watch a live exit.
 const Login = lazy(() => import("../pages/auth/Login"));
 const Signup = lazy(() => import("../pages/auth/Signup"));
+const ForgotPassword = lazy(() => import("../pages/auth/ForgotPassword"));
 const Dashboard = lazy(() => import("../pages/Dashboard"));
 const CameraList = lazy(() => import("../pages/cameras/CameraList"));
 const CameraForm = lazy(() => import("../pages/cameras/CameraForm"));
@@ -28,6 +29,7 @@ export function AppRouter({ mode, onToggleMode }) {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
 
           <Route element={<ProtectedRoute />}>
             <Route element={<AppLayout mode={mode} onToggleMode={onToggleMode} />}>

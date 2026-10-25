@@ -1,22 +1,31 @@
-"""Signup, login, token refresh, and the current-user profile."""
+"""Signup, login, token refresh, password reset by emailed code, and the
+current-user profile."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, BackgroundTasks, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUserDep, SessionDep, SuperadminDep
 from app.core import security
 from app.core.config import settings
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import (
+    AppError,
+    ForbiddenError,
+    NotConfiguredError,
+    NotFoundError,
+)
 from app.models.user import User
 from app.schemas.auth import (
     BootstrapStatus,
+    ForgotPasswordRequest,
     LoginRequest,
     LogoutRequest,
     MembershipRead,
+    MessageResponse,
     PasswordChange,
     RefreshRequest,
+    ResetPasswordRequest,
     SignupRequest,
     TokenPair,
     UserAdminUpdate,
@@ -26,6 +35,7 @@ from app.schemas.auth import (
     UserUpdate,
 )
 from app.services import auth as auth_service
+from app.services import otp
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -39,7 +49,11 @@ async def _signup_open(session) -> tuple[bool, bool]:
 async def bootstrap_status(session: SessionDep) -> BootstrapStatus:
     """Public: whether the login page should offer a signup form at all."""
     signup_open, needs_bootstrap = await _signup_open(session)
-    return BootstrapStatus(signup_open=signup_open, needs_bootstrap=needs_bootstrap)
+    return BootstrapStatus(
+        signup_open=signup_open,
+        needs_bootstrap=needs_bootstrap,
+        password_reset=settings.password_reset_enabled,
+    )
 
 
 @router.post("/signup", response_model=TokenPair, status_code=status.HTTP_201_CREATED)
@@ -102,6 +116,65 @@ async def logout(
             session, payload.refresh_token, reason="logout"
         )
     await session.commit()
+
+
+# --- password reset by emailed code ---------------------------------------------
+def _require_password_reset() -> None:
+    if not settings.password_reset_enabled:
+        raise NotConfiguredError(
+            "Password reset by email is not set up. Ask an administrator to "
+            "reset your password."
+        )
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+async def forgot_password(
+    payload: ForgotPasswordRequest, session: SessionDep, background: BackgroundTasks
+) -> MessageResponse:
+    """Mail a one-time reset code to the account with this email.
+
+    The answer is the same whether or not the account exists, is deactivated,
+    or already got a code within OTP_RESEND_SECONDS, and the mail goes out
+    after the response, so neither the message nor the timing tells them apart.
+    """
+    _require_password_reset()
+    user = await auth_service.get_user_by_email(session, payload.email)
+    if user is not None and user.is_active:
+        code = await otp.issue(session, user.id)
+        if code is not None:
+            background.add_task(
+                otp.send_code,
+                user_id=user.id,
+                email=user.email,
+                name=user.full_name or user.username,
+                code=code,
+            )
+    minutes = max(1, settings.OTP_TTL_SECONDS // 60)
+    return MessageResponse(
+        message="If an account uses that email, a reset code is on its way. "
+        f"It expires in {minutes} minutes."
+    )
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    payload: ResetPasswordRequest, session: SessionDep
+) -> MessageResponse:
+    """Check the emailed code and set the new password in one step.
+
+    Every session of the account is signed out, as on a password change. The
+    platform verifies the code in one call and resets in another; here a
+    verified code is never a pass that can be spent separately.
+    """
+    _require_password_reset()
+    if not await auth_service.reset_password_with_code(
+        session,
+        email=payload.email,
+        code=payload.code,
+        new_password=payload.new_password,
+    ):
+        raise AppError("That code is wrong or has expired. Request a new one.")
+    return MessageResponse(message="Password changed. Sign in with the new password.")
 
 
 @router.get("/me", response_model=UserProfile)

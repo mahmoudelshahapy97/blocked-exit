@@ -78,3 +78,7 @@ export const WORKER_COLOR = {
 
 export const POLL_INTERVAL_MS =
   Number(import.meta.env.VITE_POLL_INTERVAL_MS) || 3000;
+
+/** The backend's password rule (app/schemas/auth.py), for form hints. */
+export const PASSWORD_HELP =
+  "At least 10 characters, with three of: lowercase, uppercase, digit, symbol.";

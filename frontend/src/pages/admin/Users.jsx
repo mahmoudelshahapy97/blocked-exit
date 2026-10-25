@@ -34,6 +34,7 @@ import { useToast } from "../../components/Toast";
 import { ErrorState, Loading } from "../../components/DataStates";
 import PageHeader from "../../components/PageHeader";
 import { formatDateTime } from "../../utils/format";
+import { PASSWORD_HELP } from "../../utils/constants";
 
 const PLATFORM_ROLES = [
   { value: "user", label: "user", hint: "Gets the role of each workspace membership" },
@@ -41,8 +42,6 @@ const PLATFORM_ROLES = [
   { value: "superadmin", label: "superadmin", hint: "Manages users and every workspace" },
 ];
 const WORKSPACE_ROLES = ["viewer", "member", "admin"];
-const PASSWORD_HELP =
-  "At least 10 characters, with three of: lowercase, uppercase, digit, symbol.";
 
 function CreateUserDialog({ onClose, onDone }) {
   const toast = useToast();

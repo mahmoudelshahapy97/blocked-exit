@@ -1,7 +1,8 @@
 """User accounts, workspace provisioning, and token lifecycle.
 
 Splits the reference service's `user_service` + `session_service` in two halves
-of one module, minus the OTP / email / PKCE surface this app has no use for.
+of one module, minus the PKCE surface this app has no use for. The emailed
+password reset code lives in `app.services.otp`.
 
 Everything that needs a database lives here; the pure crypto lives in
 `app.core.security`.
@@ -23,6 +24,7 @@ from app.core.security import TokenError
 from app.models.user import RevokedToken, User, Workspace, WorkspaceMember
 from app.schemas.auth import TokenPair
 from app.schemas.workspace import slugify
+from app.services import otp
 from app.utils.timing import utcnow
 
 logger = get_logger(__name__)
@@ -46,6 +48,13 @@ async def get_user_by_login(session: AsyncSession, identifier: str) -> User | No
                 func.lower(User.email) == needle,
             )
         )
+    )
+
+
+async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
+    """Email only, case-insensitively: what a person types at password reset."""
+    return await session.scalar(
+        select(User).where(func.lower(User.email) == email.strip().lower())
     )
 
 
@@ -421,6 +430,10 @@ async def rotate_refresh_token(session: AsyncSession, refresh_token: str) -> Tok
     user = await get_user_by_id(session, int(claims["sub"]))
     if user is None or not user.is_active:
         raise AuthError("User no longer exists or is inactive")
+    # Without this a password change or reset would sign out every access
+    # token while the refresh token beside it quietly minted new ones.
+    if await issued_before_cutoff(session, user.id, claims.get("iat")):
+        raise AuthError("Session has been invalidated, please log in again")
 
     await revoke(
         session,
@@ -456,6 +469,9 @@ async def revoke_all_for_user(
             jti=f"user-cutoff:{user_id}:{utcnow().timestamp()}",
             user_id=user_id,
             token_type="cutoff",
+            # The API's clock, like every token's iat -- not the database's
+            # now(), which is also the start of the transaction, not this line.
+            revoked_at=utcnow(),
             # Outlives any token that could still be valid.
             expires_at=utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS + 1),
             reason=reason,
@@ -473,6 +489,21 @@ async def latest_cutoff(session: AsyncSession, user_id: int) -> datetime | None:
         .limit(1)
     )
     return row
+
+
+async def issued_before_cutoff(
+    session: AsyncSession, user_id: int, issued_at: int | float | None
+) -> bool:
+    """True when a token with this `iat` predates the user's latest cutoff.
+
+    Both sides come from the API's clock with sub-second precision (see
+    `security.create_token` and `revoke_all_for_user`), so a login made right
+    after a password reset is not mistaken for one made before it.
+    """
+    cutoff = await latest_cutoff(session, user_id)
+    if cutoff is None or issued_at is None:
+        return False
+    return float(issued_at) < cutoff.timestamp()
 
 
 async def purge_expired_revocations(session: AsyncSession) -> int:
@@ -501,6 +532,26 @@ async def change_password(
     user.password_hash = security.hash_password(new_password)
     await session.commit()
     await revoke_all_for_user(session, user.id, reason="password_change")
+
+
+async def reset_password_with_code(
+    session: AsyncSession, *, email: str, code: str, new_password: str
+) -> bool:
+    """Set a new password with an emailed code, then sign out everywhere.
+
+    False for an unknown or deactivated account and for a wrong, expired or
+    burnt code alike: the caller answers all of them the same way.
+    """
+    user = await get_user_by_email(session, email)
+    if user is None or not user.is_active:
+        return False
+    if not await otp.consume(session, user.id, code):
+        return False
+    user.password_hash = security.hash_password(new_password)
+    await session.commit()  # the new password and the spent code, together
+    await revoke_all_for_user(session, user.id, reason="password_reset")
+    logger.info("Password reset by emailed code for user %s", user.id)
+    return True
 
 
 async def require_user(session: AsyncSession, user_id: int) -> User:
