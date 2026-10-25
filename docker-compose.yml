@@ -21,6 +21,7 @@ name: blocked-exit
 
 services:
   postgres:
+    container_name: blocked_exit_postgres
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -45,6 +46,7 @@ services:
       retries: 10
 
   api:
+    container_name: blocked_exit_api
     build:
       context: ./backend
     restart: unless-stopped
@@ -75,6 +77,7 @@ services:
       replicas: 1
 
   web:
+    container_name: blocked_exit_web
     build:
       context: ./frontend
     restart: unless-stopped
@@ -95,6 +98,7 @@ services:
   # Register the camera as rtsp://mediamtx:8554/exitA -- that URL is resolved by
   # the api container, so "localhost" there would mean the container itself.
   mediamtx:
+    container_name: blocked_exit_rtsp
     image: bluenviron/mediamtx:latest-ffmpeg
     profiles: ["testing"]
     restart: unless-stopped
