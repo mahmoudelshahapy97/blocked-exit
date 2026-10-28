@@ -13,7 +13,9 @@ import { usePlatform } from "../platform/PlatformContext";
 /**
  * Sign in by username or email. The reset link shows only when the API can
  * mail a code, and the sign-up link only when the server allows sign-up
- * (`api.authOptions()` -> {password_reset, signup}).
+ * (`api.authOptions()` -> {password_reset, signup, bootstrap}). With
+ * `bootstrap` (no accounts yet) it points at creating the first one; with
+ * neither, it says who hands out accounts.
  */
 export function LoginPage({ signupPath = "/signup" }) {
   const { t } = useTranslation("common");
@@ -74,13 +76,26 @@ export function LoginPage({ signupPath = "/signup" }) {
           {t("auth.forgot")}
         </Link>
       )}
-      {options.data?.signup && (
+      {options.data?.bootstrap ? (
+        <Alert severity="info">
+          {t("auth.noAccountsYet")}{" "}
+          <Link component={RouterLink} to={signupPath}>
+            {t("auth.createAdmin")}
+          </Link>
+        </Alert>
+      ) : options.data?.signup ? (
         <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
           {t("auth.noAccount")}{" "}
           <Link component={RouterLink} to={signupPath}>
             {t("auth.signUp")}
           </Link>
         </Typography>
+      ) : (
+        options.data && (
+          <Typography variant="body2" color="text.secondary" sx={{ alignSelf: "center" }}>
+            {t("auth.noAccount")} {t("auth.askAdmin")}
+          </Typography>
+        )
       )}
     </Stack>
   );

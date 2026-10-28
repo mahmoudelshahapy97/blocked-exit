@@ -116,7 +116,10 @@
     "forgot": "Forgot your password?",
     "loginFailed": "Login failed.",
     "checkingSession": "Checking your session…",
-    "forbidden": "Your account does not have permission to view this page. Ask an administrator for access."
+    "forbidden": "Your account does not have permission to view this page. Ask an administrator for access.",
+    "noAccountsYet": "This deployment has no accounts yet.",
+    "createAdmin": "Create the administrator account",
+    "askAdmin": "Contact your administrator."
   },
   "password": {
     "changeTitle": "Change password",
