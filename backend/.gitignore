@@ -5,10 +5,11 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# Downloaded/trained weights and runtime output
-models/*.pt
+# Downloaded/trained weights and runtime output. models/*.pt and the test
+# clips in videos/ are tracked; exports and other media are not.
 models/*.onnx
 models/*.engine
 data/
 *.jpg
 *.mp4
+!videos/*.mp4

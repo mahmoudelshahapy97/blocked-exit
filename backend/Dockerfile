@@ -15,11 +15,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# CPU-only torch: the CUDA build adds ~2.5GB and is useless without a modern GPU.
+# Torch build: CPU-only by default (~3GB image; CUDA makes it ~12GB). For a GPU,
+# build with --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu126
+# and run with DEVICE=cuda; the root docker-compose.yml does both.
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
-        --extra-index-url https://download.pytorch.org/whl/cpu
+        --extra-index-url ${TORCH_INDEX_URL}
 
 COPY app ./app
 COPY alembic.ini .

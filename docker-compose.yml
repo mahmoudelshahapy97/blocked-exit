@@ -49,6 +49,11 @@ services:
     container_name: blocked_exit_api
     build:
       context: ./backend
+      args:
+        # CUDA torch for the NVIDIA GPU. For a CPU-only host set
+        # TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu, DEVICE=cpu and
+        # remove the GPU reservation under deploy.
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cu126}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -58,6 +63,8 @@ services:
     environment:
       # Overrides .env: inside the network Postgres is reachable by service name.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-insighteye}:${POSTGRES_PASSWORD:-insighteye}@postgres:5432/${POSTGRES_DB:-blocked_exit}
+      # Overrides .env's DEVICE: run YOLO on the GPU reserved below.
+      DEVICE: ${DEVICE:-cuda}
       RUN_MIGRATIONS: "${RUN_MIGRATIONS:-true}"
       # JWT signing key comes from backend/.env's SECRET_KEY (env_file, above).
       # Set it there for real deployments -- the production guard in
@@ -69,12 +76,21 @@ services:
       # Weights, snapshots and test clips survive image rebuilds.
       - ./backend/models:/app/models
       - ./backend/data:/app/data
+      # Test clips, usable as a camera source: /app/videos/<file>.mp4
+      - ./backend/videos:/app/videos:ro
     # Workers need time to close open events and release their captures.
     stop_grace_period: 30s
     deploy:
       # NOT scalable: stream workers are in-process threads with per-camera
       # tracker state. Two replicas would open every camera twice.
       replicas: 1
+      # The GPU for DEVICE=cuda; needs the NVIDIA Container Toolkit on the host.
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
   web:
     container_name: blocked_exit_web

@@ -109,6 +109,87 @@ Full stack in Docker instead: `docker compose up` (set `DATABASE_URL` to the
 > `DATABASE_URL` at the WSL IP instead — `wsl hostname -I` — or run the API in
 > compose too, where it reaches Postgres by service name.
 
+## Full stack from the repo root
+
+The root `docker-compose.yml` runs Postgres, the API and the web console
+together (containers `blocked_exit_postgres`, `blocked_exit_api`,
+`blocked_exit_web`):
+
+```bash
+cd /home/ubuntu/blocked-exit
+docker compose down
+docker compose up -d --build
+```
+
+| What | URL |
+|------|-----|
+| Web console | <http://localhost:8081> |
+| API (through the console's proxy) | <http://localhost:8081/api/v1> |
+| API (direct) | <http://localhost:8001/api/v1> · docs at `/docs` |
+| Postgres | `localhost:5433` |
+
+`down` keeps the `pgdata` volume, so accounts, cameras and events survive a
+rebuild. `down -v` wipes them.
+
+**First login.** A fresh database has no accounts, and the first signup
+becomes the superadmin (see below). The local stack was bootstrapped with the
+e2e suite's default account, so `e2e/run.sh` works without extra settings:
+
+| Username | Password | Role |
+|----------|----------|------|
+| `e2e.admin` | `E2e-Admin-Pass-1` | superadmin, workspace "Default" |
+
+Change that password, or make a separate superadmin, before anyone else can
+reach the console. To bootstrap an empty database yourself:
+
+```bash
+curl -X POST localhost:8081/api/v1/auth/signup -H "Content-Type: application/json" \
+  -d '{"username":"e2e.admin","email":"e2e.admin@example.com","password":"E2e-Admin-Pass-1","workspace_name":"Default"}'
+```
+
+**Test videos as cameras.** Compose mounts `backend/videos` read-only at
+`/app/videos` in the API container. A camera's source can be any clip there,
+and the clip loops forever (`LOOP_VIDEO_FILES=true`). The clips never go into
+the image: `.dockerignore` drops `*.mp4`, so a new clip in `backend/videos`
+needs no rebuild. On the Cameras page, or through the API:
+
+```bash
+curl -X POST localhost:8081/api/v1/cameras -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"name": "Exit A", "location": "Main exit", "rtsp_url": "/app/videos/5.mp4", "enabled": true}'
+```
+
+The local stack has these six demo cameras:
+
+| # | Camera | Source | Location |
+|---|--------|--------|----------|
+| 1 | Exit A | `/app/videos/5.mp4` | Main exit |
+| 2 | CCTV 1 | `/app/videos/cctv_video1.mp4` | Corridor |
+| 3 | CCTV 3 | `/app/videos/cctv_video3.mp4` | Corridor |
+| 4 | CCTV 20 | `/app/videos/cctv_video20.mp4` | Lobby |
+| 5 | Left Item 1 | `/app/videos/Left-Behined Item 0001.mp4` | Hall |
+| 6 | Normal 1 | `/app/videos/normal-1.mp4` | Side exit |
+
+None of them has an exit region yet, so each one treats the whole frame as the
+exit. Draw the door in the [zone editor](#draw-the-exit-region) for meaningful
+results. Alerts go nowhere until `ALERT_EMAIL_TO` or `WEBHOOK_URL` is set in
+`backend/.env`. Events still show up in the console.
+
+The stack runs YOLO on the GPU (see [Performance](#performance)). Measured on
+a Tesla T4 with 4 CPU cores, six cameras each hold the full `PROCESS_FPS=5`.
+That uses about 29% of the GPU, 800 MiB of GPU memory, and 1.3 CPU cores. On
+`DEVICE=cpu` the same six cameras reach only about 2 fps each and use all 4
+cores.
+
+> **API restarting and the console showing 502?** If `backend/data` is missing
+> when compose starts, Docker creates it owned by root. The API runs as
+> uid 1000 and then fails at startup with
+> `PermissionError: '/app/data/snapshots'`. Give the folder back and restart:
+>
+> ```bash
+> docker run --rm -v "$PWD/backend/data:/d" alpine:3 chown -R 1000:1000 /d
+> docker restart blocked_exit_api
+> ```
+
 ## Accounts, roles and workspaces
 
 Same model as the InsightEye platform:
@@ -155,7 +236,8 @@ passwords from the Users page.
 ## Register an exit and start monitoring
 
 `rtsp_url` also accepts a local video file, so the pipeline can be exercised
-without a camera. Every route except health and the login/signup/refresh/
+without a camera. In the root compose stack, use a path under `/app/videos`
+(see [Full stack from the repo root](#full-stack-from-the-repo-root)). Every route except health and the login/signup/refresh/
 bootstrap and password reset endpoints needs a bearer token.
 
 ```bash
@@ -300,7 +382,25 @@ yolo export model=models/yolo26n-seg.pt format=openvino
 # then set MODEL_PATH / SEG_MODEL_PATH to the exported directory
 ```
 
-CUDA is only worth it with a modern GPU — set `DEVICE=cuda`.
+**GPU.** The root `docker-compose.yml` runs on the NVIDIA GPU by default. It
+builds the image with CUDA torch (`TORCH_INDEX_URL`, default the cu126 wheel
+index), reserves the GPU under `deploy.resources`, and sets `DEVICE=cuda`,
+which overrides `backend/.env`. The host needs the NVIDIA driver and the NVIDIA
+Container Toolkit (`docker info` lists an `nvidia` runtime). The CUDA image is
+about 12GB, against about 3GB for the CPU one, so leave room on disk for the
+build. Check that it took:
+
+```bash
+docker exec blocked_exit_api python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+curl -s localhost:8081/api/v1/health    # "device": "cuda"
+nvidia-smi                              # the api's python process holds GPU memory
+```
+
+For a CPU-only host, build with
+`TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu`, set `DEVICE=cpu`, and
+remove the GPU reservation. Without it, the API container starts with no GPU
+and fails at its first inference. A bare `docker build` of `backend/` still
+produces the CPU image.
 
 ## Running in production
 

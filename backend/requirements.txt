@@ -30,7 +30,7 @@ alembic==1.19.0
 greenlet==3.5.4
 
 # --- Computer vision ---------------------------------------------------
-# CPU-only torch keeps the image ~2.5GB smaller. Install with:
+# CPU-only torch keeps the image ~9GB smaller (the root compose builds CUDA). CPU install:
 #   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 ultralytics==8.4.115
 torch==2.13.0
