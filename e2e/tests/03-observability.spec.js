@@ -33,7 +33,7 @@ test("the dashboard shows the monitored exit as a live card", async ({ page, req
   // "Not monitored" placeholder.
   const card = page.locator(`a[href="/cameras/${camera.id}"]`).first();
   await expect(card).toBeVisible();
-  await expect(card).toContainText(/CLEAR|PARTIAL|FULL/, { timeout: 30_000 });
+  await expect(card).toContainText(/clear|partial|full/i, { timeout: 30_000 });
   await expect(card).toContainText(/%/);
 
   expect(problems, problems.join("\n")).toEqual([]);
@@ -75,7 +75,7 @@ test("the event log renders, filters, and agrees with the API", async ({ page, r
     const first = api.items[0];
     const row = page.getByRole("row").filter({ hasText: String(first.id) }).first();
     await expect(row).toBeVisible();
-    await expect(row).toContainText(/CLEAR|PARTIAL|FULL/);
+    await expect(row).toContainText(/clear|partial|full/i);
     // An event carries the measurement that opened it.
     expect(first.min_accessibility_pct).toBeGreaterThanOrEqual(0);
     expect(first.camera_id).toBe(camera.id);

@@ -65,23 +65,28 @@ test("a viewer lands in that workspace with a read-only console", async ({ brows
   await expect(page.getByRole("link", { name: "Add exit" })).toHaveCount(0);
 
   await page.goto("/admin/users");
-  await expect(page).toHaveURL(/\/$/); // not a superadmin
+  // Not a superadmin: the page explains instead of rendering the user list.
+  await expect(page.getByText(/does not have permission/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create user" })).toHaveCount(0);
   await context.close();
 });
 
 test("switching workspace re-scopes every page", async ({ page }) => {
   await page.goto("/cameras");
-  const switcher = page.getByRole("combobox", { name: "Workspace" });
+  const switcher = page.getByRole("combobox", { name: /^Workspace:/ });
   const original = (await switcher.textContent()).trim();
+  // An option reads "<name>" over "<n> cameras"; match the name line exactly.
+  const option = (name) =>
+    page.getByRole("option").filter({ has: page.getByText(name, { exact: true }) });
 
   await switcher.click();
-  await page.getByRole("option", { name: WORKSPACE, exact: true }).click();
-  await expect(page.getByText(`Switched to ${WORKSPACE}`)).toBeVisible();
+  await option(WORKSPACE).click();
+  await expect(switcher).toHaveText(WORKSPACE);
   await expect(page.getByText(/no exits registered yet/i)).toBeVisible();
 
-  await page.getByRole("combobox", { name: "Workspace" }).click();
-  await page.getByRole("option", { name: original, exact: true }).click();
-  await expect(page.getByText(`Switched to ${original}`)).toBeVisible();
+  await switcher.click();
+  await option(original).click();
+  await expect(switcher).toHaveText(original);
 });
 
 test("the workspace is deactivated, then deleted", async ({ page }) => {

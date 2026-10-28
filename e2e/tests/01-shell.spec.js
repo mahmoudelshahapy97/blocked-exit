@@ -39,7 +39,7 @@ test("the dashboard loads with its shell intact", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Live exits", level: 5 })).toBeVisible({
     timeout: 30_000,
   });
-  for (const label of ["Dashboard", "Exits", "Events", "Alerts", "Analytics"]) {
+  for (const label of ["Dashboard", "Exits", "Events", "Alert deliveries", "Analytics"]) {
     await expect(page.getByRole("link", { name: label, exact: true })).toBeVisible();
   }
   expect(problems, problems.join("\n")).toEqual([]);
@@ -48,7 +48,7 @@ test("the dashboard loads with its shell intact", async ({ page }) => {
 const ROUTES = [
   { label: "Exits", path: "/cameras", heading: "Exits" },
   { label: "Events", path: "/events", heading: "Blockage events" },
-  { label: "Alerts", path: "/alerts", heading: "Alerts" },
+  { label: "Alert deliveries", path: "/alerts", heading: "Alerts" },
   { label: "Analytics", path: "/analytics", heading: "Analytics" },
 ];
 
@@ -77,7 +77,7 @@ test("the legacy /zones deep link still lands on the camera list", async ({ page
 
 test("the dark/light toggle repaints the page", async ({ page }) => {
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: /switch to (light|dark)/i });
+  const toggle = page.getByRole("button", { name: /colour mode/i });
   await expect(toggle).toBeVisible();
 
   const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
