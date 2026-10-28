@@ -25,6 +25,7 @@ import { ErrorState, Loading } from "../../components/DataStates";
 import PageHeader from "../../components/PageHeader";
 import PolygonEditor from "../../components/PolygonEditor";
 import { STRATEGY } from "../../utils/constants";
+import { useTranslation } from "react-i18next";
 
 /**
  * Draw the exit region the zone-based strategy measures against.
@@ -35,6 +36,7 @@ import { STRATEGY } from "../../utils/constants";
  * lets the backend normalize, which keeps one implementation of that maths.
  */
 export default function ZoneEditor() {
+  const { t } = useTranslation();
   const { cameraId } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -126,7 +128,7 @@ export default function ZoneEditor() {
     setCapturing(true);
     try {
       await loadFrame(camera);
-      toast.success("Fresh frame captured");
+      toast.success(t("zoneEditor.freshFrameCaptured"));
       setLoadError(null);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -137,7 +139,7 @@ export default function ZoneEditor() {
 
   const save = async () => {
     if (points.length < 3) {
-      toast.warning("An exit region needs at least 3 points.");
+      toast.warning(t("zoneEditor.anExitRegionNeedsAt"));
       return;
     }
     setSaving(true);
@@ -148,7 +150,7 @@ export default function ZoneEditor() {
         frameHeight: frame?.height,
       });
       setCamera(updated);
-      toast.success("Exit region saved — the worker picked it up immediately.");
+      toast.success(t("zoneEditor.exitRegionSavedTheWorker"));
       navigate(`/cameras/${cameraId}`);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -174,13 +176,13 @@ export default function ZoneEditor() {
     }
   };
 
-  if (loading) return <Loading label="Grabbing a frame from the camera…" height={340} />;
+  if (loading) return <Loading label={t("zoneEditor.grabbingAFrameFromThe")} height={340} />;
 
   return (
     <Box>
       <PageHeader
-        title={`Exit region — ${camera?.name || `camera ${cameraId}`}`}
-        subtitle="Trace the doorway. Everything overlapping this shape counts against how accessible the exit is."
+        title={t("zoneEditor.exitRegionV0", { v0: camera?.name || `camera ${cameraId}` })}
+        subtitle={t("zoneEditor.traceTheDoorwayEverythingOverlapping")}
         actions={
           <>
             <Button
@@ -189,7 +191,7 @@ export default function ZoneEditor() {
               to={`/cameras/${cameraId}`}
               color="inherit"
             >
-              Back
+              {t("zoneEditor.back")}
             </Button>
             <Button
               startIcon={<CameraAltIcon />}
@@ -197,7 +199,7 @@ export default function ZoneEditor() {
               disabled={capturing}
               color="inherit"
             >
-              New frame
+              {t("zoneEditor.newFrame")}
             </Button>
             <Button
               startIcon={<SaveIcon />}
@@ -205,7 +207,7 @@ export default function ZoneEditor() {
               onClick={save}
               disabled={saving || points.length < 3}
             >
-              {saving ? "Saving…" : "Save region"}
+              {saving ? t("zoneEditor.saving") : t("zoneEditor.saveRegion")}
             </Button>
           </>
         }
@@ -214,7 +216,7 @@ export default function ZoneEditor() {
       <ErrorState
         error={loadError}
         onRetry={load}
-        title="Could not grab a frame"
+        title={t("zoneEditor.couldNotGrabAFrame")}
       />
 
       <Grid container spacing={2}>
@@ -237,17 +239,17 @@ export default function ZoneEditor() {
           <Card>
             <CardContent>
               <Typography variant="subtitle2" gutterBottom>
-                Region
+                {t("zoneEditor.region")}
               </Typography>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 2 }}>
                 <Chip
                   size="small"
                   color={points.length >= 3 ? "success" : "warning"}
-                  label={`${points.length} point${points.length === 1 ? "" : "s"}`}
+                  label={t("zoneEditor.pointCount", { count: points.length })}
                 />
                 {points.length > 0 && points.length < 3 && (
                   <Typography variant="caption" color="warning.main">
-                    at least 3 needed
+                    {t("zoneEditor.atLeast3Needed")}
                   </Typography>
                 )}
               </Stack>
@@ -260,7 +262,7 @@ export default function ZoneEditor() {
                   disabled={!history.length}
                   color="inherit"
                 >
-                  Undo
+                  {t("zoneEditor.undo")}
                 </Button>
                 <Button
                   size="small"
@@ -269,26 +271,24 @@ export default function ZoneEditor() {
                   disabled={!points.length}
                   color="inherit"
                 >
-                  Clear
+                  {t("zoneEditor.clear")}
                 </Button>
               </Stack>
 
               <Divider sx={{ my: 2 }} />
 
               <Typography variant="caption" color="text.secondary" component="div">
-                Saved points are normalized to [0, 1], so the region keeps its meaning if
-                this camera is later replaced with one of a different resolution.
+                {t("zoneEditor.savedPointsAreNormalizedTo")}
               </Typography>
 
               {camera?.strategy === STRATEGY.DOOR_CENTRIC && (
                 <>
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="subtitle2" gutterBottom>
-                    Door-centric reference
+                    {t("zoneEditor.doorCentricReference")}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
-                    Capture this while the exit is completely clear. Every later frame is
-                    measured against it.
+                    {t("zoneEditor.captureThisWhileTheExit")}
                   </Typography>
                   <Button
                     size="small"
@@ -298,13 +298,12 @@ export default function ZoneEditor() {
                     disabled={capturing}
                     fullWidth
                   >
-                    {capturing ? "Capturing…" : "Capture reference now"}
+                    {capturing ? t("zoneEditor.capturing") : t("zoneEditor.captureReferenceNow")}
                   </Button>
                   {camera?.reference_bbox && (
                     <Alert severity="success" sx={{ mt: 1.5 }} icon={false}>
                       <Typography variant="caption">
-                        Reference stored: [
-                        {camera.reference_bbox.map((v) => Number(v).toFixed(3)).join(", ")}]
+                        {t("zoneEditor.referenceStoredV0", { v0: camera.reference_bbox.map((v) => Number(v).toFixed(3)).join(", ") })}
                       </Typography>
                     </Alert>
                   )}
@@ -313,8 +312,7 @@ export default function ZoneEditor() {
 
               {camera?.strategy === STRATEGY.ZONE_BASED && !camera?.door_polygon?.length && (
                 <Alert severity="warning" sx={{ mt: 2 }}>
-                  This camera has no saved region yet. Zone-based detection has nothing to
-                  measure until one is drawn.
+                  {t("zoneEditor.thisCameraHasNoSaved")}
                 </Alert>
               )}
             </CardContent>

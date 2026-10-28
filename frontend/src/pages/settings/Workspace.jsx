@@ -20,13 +20,15 @@ import { useAuth } from "../../context/AuthContext";
 import { ErrorState, Loading } from "../../components/DataStates";
 import PageHeader from "../../components/PageHeader";
 import StatCard from "../../components/StatCard";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 
 const ROLE_COLOR = { admin: "primary", member: "info", viewer: "default" };
 
 const ROLE_ABILITIES = {
-  viewer: "View exits, live video, events and analytics.",
-  member: "Also run cameras, add exits, and acknowledge or resolve events.",
-  admin: "Also draw exit regions, send test alerts and delete event data.",
+  get viewer() { return i18n.t("workspace.abilityViewer"); },
+  get member() { return i18n.t("workspace.abilityMember"); },
+  get admin() { return i18n.t("workspace.abilityAdmin"); },
 };
 
 /**
@@ -34,6 +36,7 @@ const ROLE_ABILITIES = {
  * a superadmin (Manage workspaces), not by workspace admins.
  */
 export default function WorkspaceSettings() {
+  const { t } = useTranslation();
   const { activeWorkspaceId, workspaceRole, isSuperadmin } = useAuth();
 
   const {
@@ -55,8 +58,8 @@ export default function WorkspaceSettings() {
   return (
     <Box>
       <PageHeader
-        title={workspace?.name ?? "Workspace"}
-        subtitle={workspace?.description || "Your active workspace"}
+        title={workspace?.name ?? t("workspace.workspace")}
+        subtitle={workspace?.description || t("workspace.yourActiveWorkspace")}
         actions={
           isSuperadmin && (
             <Button
@@ -65,7 +68,7 @@ export default function WorkspaceSettings() {
               variant="contained"
               startIcon={<ManageAccountsIcon />}
             >
-              Manage
+              {t("workspace.manage")}
             </Button>
           )
         }
@@ -77,25 +80,25 @@ export default function WorkspaceSettings() {
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, sm: 4 }}>
           <StatCard
-            label="Your role"
+            label={t("workspace.yourRole")}
             value={workspaceRole ?? "—"}
             hint={ROLE_ABILITIES[workspaceRole]}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
           <StatCard
-            label="Exits"
+            label={t("workspace.exits")}
             value={workspace ? `${workspace.camera_count} / ${workspace.camera_quota}` : "—"}
-            hint="Cameras used of this workspace's quota"
+            hint={t("workspace.camerasUsedOfThisWorkspace")}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <StatCard label="Members" value={members ? members.length : "—"} />
+          <StatCard label={t("workspace.members")} value={members ? members.length : "—"} />
         </Grid>
       </Grid>
 
       {membersLoading && !members ? (
-        <Loading label="Loading members…" />
+        <Loading label={t("workspace.loadingMembers")} />
       ) : (
         <Card>
           <CardContent sx={{ p: 0 }}>
@@ -103,9 +106,9 @@ export default function WorkspaceSettings() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Member</TableCell>
-                    <TableCell>Email</TableCell>
-                    <TableCell>Role</TableCell>
+                    <TableCell>{t("workspace.member")}</TableCell>
+                    <TableCell>{t("workspace.email")}</TableCell>
+                    <TableCell>{t("workspace.role")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -123,7 +126,7 @@ export default function WorkspaceSettings() {
                       <TableCell>
                         <Chip size="small" color={ROLE_COLOR[member.role]} label={member.role} />
                         {!member.is_active && (
-                          <Chip size="small" label="inactive" sx={{ ml: 1 }} />
+                          <Chip size="small" label={t("workspace.inactive")} sx={{ ml: 1 }} />
                         )}
                       </TableCell>
                     </TableRow>

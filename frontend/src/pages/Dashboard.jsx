@@ -32,6 +32,7 @@ import LiveView from "../components/LiveView";
 import { RiskChip, StateChip, WorkerChip } from "../components/StatusChips";
 import { POLL_INTERVAL_MS } from "../utils/constants";
 import { formatDuration, formatPct, summarizeObjects } from "../utils/format";
+import { useTranslation } from "react-i18next";
 
 /** Colour the accessibility bar by state, not by value — the thresholds are
  *  per-camera on the backend, so the state it decided is the truth. */
@@ -40,6 +41,7 @@ const BAR_COLOR = { CLEAR: "success", PARTIAL: "warning", FULL: "error", UNKNOWN
 const SEVERITY = { FULL: 3, PARTIAL: 2, UNKNOWN: 1, CLEAR: 0 };
 
 function IdleCard({ camera, onStart, busy }) {
+  const { t } = useTranslation();
   const needsZone = camera.strategy === "zone_based" && !camera.door_polygon?.length;
   return (
     <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -52,14 +54,14 @@ function IdleCard({ camera, onStart, busy }) {
           color: "grey.600",
         }}
       >
-        <Typography variant="body2">Not monitored</Typography>
+        <Typography variant="body2">{t("dashboard.notMonitored")}</Typography>
       </Box>
       <CardContent sx={{ flexGrow: 1 }}>
         <Typography variant="subtitle1" noWrap sx={{ fontWeight: 700 }}>
           {camera.name}
         </Typography>
         <Typography variant="caption" color="text.secondary" noWrap display="block">
-          {camera.location || "No location set"}
+          {camera.location || t("dashboard.noLocationSet")}
         </Typography>
 
         <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
@@ -74,7 +76,7 @@ function IdleCard({ camera, onStart, busy }) {
               component={RouterLink}
               to={`/cameras/${camera.id}/zone`}
             >
-              Draw exit region
+              {t("dashboard.drawExitRegion")}
             </Button>
           ) : (
             <Button
@@ -84,11 +86,11 @@ function IdleCard({ camera, onStart, busy }) {
               disabled={busy}
               onClick={() => onStart(camera.id)}
             >
-              Start monitoring
+              {t("dashboard.startMonitoring")}
             </Button>
           )}
           <Button size="small" component={RouterLink} to={`/cameras/${camera.id}`} color="inherit">
-            Details
+            {t("dashboard.details")}
           </Button>
         </Stack>
       </CardContent>
@@ -97,6 +99,7 @@ function IdleCard({ camera, onStart, busy }) {
 }
 
 function ExitCard({ status }) {
+  const { t } = useTranslation();
   const accessibility = Number(status.accessibility_pct ?? 0);
   return (
     <Card sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
@@ -114,7 +117,7 @@ function ExitCard({ status }) {
                 {status.camera_name}
               </Typography>
               <Typography variant="caption" color="text.secondary" noWrap display="block">
-                {status.location || "No location set"}
+                {status.location || t("dashboard.noLocationSet")}
               </Typography>
             </Box>
             <StateChip state={status.state} />
@@ -123,7 +126,7 @@ function ExitCard({ status }) {
           <Box sx={{ mt: 2 }}>
             <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
               <Typography variant="caption" color="text.secondary">
-                Accessible
+                {t("dashboard.accessible")}
               </Typography>
               <Typography variant="caption" sx={{ fontWeight: 700 }}>
                 {formatPct(accessibility)}
@@ -143,7 +146,7 @@ function ExitCard({ status }) {
             <WorkerChip state={status.worker_state} />
             <RiskChip level={status.risk_level} score={status.risk_score} />
             {status.blocked && (
-              <Tooltip title="How long this blockage has been confirmed">
+              <Tooltip title={t("dashboard.howLongThisBlockageHas")}>
                 <Typography variant="caption" color="text.secondary">
                   {formatDuration(status.blocked_duration_s)}
                 </Typography>
@@ -153,7 +156,7 @@ function ExitCard({ status }) {
 
           {status.blocking_objects?.length > 0 && (
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-              Blocked by {summarizeObjects(status.blocking_objects, 3)}
+              {t("dashboard.blockedByV0", { v0: summarizeObjects(status.blocking_objects, 3) })}
             </Typography>
           )}
           {status.error && (
@@ -168,6 +171,7 @@ function ExitCard({ status }) {
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const {
     data: statuses,
     error,
@@ -223,12 +227,12 @@ export default function Dashboard() {
   return (
     <Box>
       <PageHeader
-        title="Live exits"
-        subtitle="Every monitored exit, worst first. Updates every few seconds."
+        title={t("dashboard.liveExits")}
+        subtitle={t("dashboard.everyMonitoredExitWorstFirst")}
         actions={
           <>
             <Button startIcon={<RefreshIcon />} onClick={refreshAll} color="inherit">
-              Refresh
+              {t("dashboard.refresh")}
             </Button>
             <RoleGate minimum="member">
               <Button
@@ -237,7 +241,7 @@ export default function Dashboard() {
                 component={RouterLink}
                 to="/cameras/new"
               >
-                Add exit
+                {t("dashboard.addExit")}
               </Button>
             </RoleGate>
           </>
@@ -247,18 +251,18 @@ export default function Dashboard() {
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Monitored"
+            label={t("dashboard.monitored")}
             value={summary?.cameras_monitored ?? monitored.length}
-            hint={`${summary?.cameras_total ?? monitored.length + idle.length} registered`}
+            hint={t("dashboard.v0Registered", { v0: summary?.cameras_total ?? monitored.length + idle.length })}
             icon={<SensorsIcon />}
             color="info"
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Blocked now"
+            label={t("dashboard.blockedNow")}
             value={blockedNow}
-            hint={blockedNow ? "Needs attention" : "All exits accessible"}
+            hint={blockedNow ? t("dashboard.needsAttention") : t("dashboard.allExitsAccessible")}
             icon={<ReportProblemIcon />}
             color={blockedNow ? "error" : "success"}
           />
@@ -270,11 +274,11 @@ export default function Dashboard() {
             sx={{ borderRadius: 1, height: "100%" }}
           >
             <StatCard
-              label="Unacknowledged"
+              label={t("dashboard.unacknowledged")}
               value={overview?.unacknowledged_events ?? "—"}
               hint={
                 overview
-                  ? `${overview.open_events} unresolved · ${overview.events_24h} in 24h`
+                  ? t("dashboard.openEventsUnresolvedEvents24h", { open_events: overview.open_events, events_24h: overview.events_24h })
                   : ""
               }
               icon={<DoorFrontIcon />}
@@ -284,23 +288,23 @@ export default function Dashboard() {
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Avg blockage"
+            label={t("dashboard.avgBlockage")}
             value={summary ? formatDuration(summary.avg_duration_s) : "—"}
-            hint={summary ? `longest ${formatDuration(summary.max_duration_s)}` : ""}
+            hint={summary ? t("dashboard.longestV0", { v0: formatDuration(summary.max_duration_s) }) : ""}
             icon={<TimerIcon />}
             color="secondary"
           />
         </Grid>
       </Grid>
 
-      <ErrorState error={error} onRetry={refreshAll} title="Could not load live status" />
+      <ErrorState error={error} onRetry={refreshAll} title={t("dashboard.couldNotLoadLiveStatus")} />
 
       {loading && !statuses ? (
-        <Loading label="Contacting the detection service…" height={280} />
+        <Loading label={t("dashboard.contactingTheDetectionService")} height={280} />
       ) : nothingRegistered ? (
         <EmptyState
-          title="No exits are registered"
-          description="Register a camera and start monitoring it. An RTSP URL works, and so does a path to a local video file if you want to exercise the pipeline without hardware."
+          title={t("dashboard.noExitsAreRegistered")}
+          description={t("dashboard.registerACameraAndStart")}
           action={
             <Button
               variant="contained"
@@ -308,7 +312,7 @@ export default function Dashboard() {
               to="/cameras/new"
               startIcon={<AddIcon />}
             >
-              Add your first exit
+              {t("dashboard.addYourFirstExit")}
             </Button>
           }
         />

@@ -24,6 +24,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import EditIcon from "@mui/icons-material/Edit";
 import CropFreeIcon from "@mui/icons-material/CropFree";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
+import NetworkCheckIcon from "@mui/icons-material/NetworkCheck";
 
 import { errorMessage } from "../../api/client";
 import { alerts as alertsApi, cameras as camerasApi, events as eventsApi, monitoring } from "../../api/endpoints";
@@ -44,6 +45,8 @@ import {
   fromNow,
   redactUrl,
 } from "../../utils/format";
+import { useTranslation } from "react-i18next";
+import { ProbeDialog, useProbe } from "@insighteye/ui";
 
 const BAR_COLOR = { CLEAR: "success", PARTIAL: "warning", FULL: "error", UNKNOWN: "inherit" };
 
@@ -61,9 +64,11 @@ function Field({ label, children }) {
 }
 
 export default function CameraDetail() {
+  const { t } = useTranslation();
   const { cameraId } = useParams();
   const toast = useToast();
   const [testingAlert, setTestingAlert] = useState(false);
+  const probe = useProbe(camerasApi, errorMessage);
 
   const {
     data: camera,
@@ -102,7 +107,7 @@ export default function CameraDetail() {
     setTestingAlert(true);
     try {
       const rows = await alertsApi.test(Number(cameraId));
-      toast.success(`Test alert dispatched on ${rows.length} channel(s).`);
+      toast.success(t("cameraDetail.testAlertDispatchedOnLength", { length: rows.length }));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -110,15 +115,15 @@ export default function CameraDetail() {
     }
   };
 
-  if (cameraLoading && !camera) return <Loading label="Loading camera…" height={340} />;
+  if (cameraLoading && !camera) return <Loading label={t("cameraDetail.loadingCamera")} height={340} />;
 
   if (cameraError && !camera) {
     return (
       <Box>
-        <PageHeader title="Exit" />
+        <PageHeader title={t("cameraDetail.exit")} />
         <ErrorState error={cameraError} onRetry={refreshCamera} />
         <Button component={RouterLink} to="/cameras" startIcon={<ArrowBackIcon />}>
-          Back to exits
+          {t("cameraDetail.backToExits")}
         </Button>
       </Box>
     );
@@ -132,11 +137,11 @@ export default function CameraDetail() {
     <Box>
       <PageHeader
         title={camera?.name}
-        subtitle={camera?.location || "No location set"}
+        subtitle={camera?.location || t("cameraDetail.noLocationSet")}
         actions={
           <>
             <Button startIcon={<ArrowBackIcon />} component={RouterLink} to="/cameras" color="inherit">
-              Back
+              {t("cameraDetail.back")}
             </Button>
             <Button
               startIcon={<CropFreeIcon />}
@@ -144,7 +149,10 @@ export default function CameraDetail() {
               to={`/cameras/${cameraId}/zone`}
               color="inherit"
             >
-              Exit region
+              {t("cameraDetail.exitRegion")}
+            </Button>
+            <Button startIcon={<NetworkCheckIcon />} onClick={() => probe.probe(cameraId)} color="inherit">
+              {t("actions.testConnection")}
             </Button>
             <Button
               startIcon={<EditIcon />}
@@ -152,7 +160,7 @@ export default function CameraDetail() {
               to={`/cameras/${cameraId}/edit`}
               color="inherit"
             >
-              Edit
+              {t("cameraDetail.edit")}
             </Button>
             {running ? (
               <>
@@ -162,7 +170,7 @@ export default function CameraDetail() {
                   disabled={busy}
                   color="inherit"
                 >
-                  Restart
+                  {t("cameraDetail.restart")}
                 </Button>
                 <Button
                   startIcon={<StopIcon />}
@@ -171,7 +179,7 @@ export default function CameraDetail() {
                   onClick={() => stop(Number(cameraId))}
                   disabled={busy}
                 >
-                  Stop
+                  {t("cameraDetail.stop")}
                 </Button>
               </>
             ) : (
@@ -181,7 +189,7 @@ export default function CameraDetail() {
                 onClick={() => start(Number(cameraId))}
                 disabled={busy}
               >
-                Start monitoring
+                {t("cameraDetail.startMonitoring")}
               </Button>
             )}
           </>
@@ -199,12 +207,11 @@ export default function CameraDetail() {
               component={RouterLink}
               to={`/cameras/${cameraId}/zone`}
             >
-              Draw it
+              {t("cameraDetail.drawIt")}
             </Button>
           }
         >
-          No exit region is defined. The zone-based strategy measures obstruction against a
-          drawn polygon, so it has nothing to measure until you draw one.
+          {t("cameraDetail.noExitRegionIsDefined")}
         </Alert>
       )}
 
@@ -230,14 +237,14 @@ export default function CameraDetail() {
                 <RiskChip level={status?.risk_level} score={status?.risk_score} />
                 <StrategyChip strategy={status?.strategy || camera?.strategy} />
                 {status?.door_visible === false && (
-                  <Chip size="small" color="warning" label="door not visible" />
+                  <Chip size="small" color="warning" label={t("cameraDetail.doorNotVisible")} />
                 )}
               </Stack>
 
               <Box sx={{ mt: 2.5 }}>
                 <Stack direction="row" justifyContent="space-between" sx={{ mb: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
-                    Accessible
+                    {t("cameraDetail.accessible")}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 700 }}>
                     {status ? formatPct(accessibility) : "—"}
@@ -258,7 +265,10 @@ export default function CameraDetail() {
                   icon={false}
                 >
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {status.recommended_action}
+                    {/* One fixed sentence per risk level (services/risk.py). */}
+                    {t(`cameraDetail.action.${status.risk_level}`, {
+                      defaultValue: status.recommended_action,
+                    })}
                   </Typography>
                 </Alert>
               )}
@@ -271,18 +281,18 @@ export default function CameraDetail() {
             <Card>
               <CardContent>
                 <Typography variant="subtitle2" gutterBottom>
-                  Right now
+                  {t("cameraDetail.rightNow")}
                 </Typography>
                 <Divider sx={{ mb: 1 }} />
-                <Field label="Blocked">{status?.blocked ? "Yes" : "No"}</Field>
-                <Field label="Blocked for">
+                <Field label={t("cameraDetail.blocked")}>{status?.blocked ? t("cameraDetail.yes") : t("cameraDetail.no")}</Field>
+                <Field label={t("cameraDetail.blockedFor")}>
                   {status?.blocked ? formatDuration(status.blocked_duration_s) : "—"}
                 </Field>
-                <Field label="Blocked since">
+                <Field label={t("cameraDetail.blockedSince")}>
                   {status?.blocked_since ? fromNow(status.blocked_since) : "—"}
                 </Field>
-                <Field label="People in view">{formatNumber(status?.people_count ?? 0)}</Field>
-                <Field label="Open event">
+                <Field label={t("cameraDetail.peopleInView")}>{formatNumber(status?.people_count ?? 0)}</Field>
+                <Field label={t("cameraDetail.openEvent")}>
                   {status?.event_id ? `#${status.event_id}` : "—"}
                 </Field>
               </CardContent>
@@ -291,17 +301,17 @@ export default function CameraDetail() {
             <Card>
               <CardContent>
                 <Typography variant="subtitle2" gutterBottom>
-                  Blocking objects
+                  {t("cameraDetail.blockingObjects")}
                 </Typography>
                 <Divider sx={{ mb: 1 }} />
                 {status?.blocking_objects?.length ? (
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Object</TableCell>
-                        <TableCell align="right">Confidence</TableCell>
-                        <TableCell align="right">Covers</TableCell>
-                        <TableCell align="right">Track</TableCell>
+                        <TableCell>{t("cameraDetail.object")}</TableCell>
+                        <TableCell align="right">{t("cameraDetail.confidence")}</TableCell>
+                        <TableCell align="right">{t("cameraDetail.covers")}</TableCell>
+                        <TableCell align="right">{t("cameraDetail.track")}</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -321,7 +331,7 @@ export default function CameraDetail() {
                   </Table>
                 ) : (
                   <Typography variant="body2" color="text.secondary" sx={{ py: 1.5 }}>
-                    Nothing is obstructing this exit.
+                    {t("cameraDetail.nothingIsObstructingThisExit")}
                   </Typography>
                 )}
               </CardContent>
@@ -330,54 +340,55 @@ export default function CameraDetail() {
             <Card>
               <CardContent>
                 <Typography variant="subtitle2" gutterBottom>
-                  Configuration
+                  {t("cameraDetail.configuration")}
                 </Typography>
                 <Divider sx={{ mb: 1 }} />
-                <Field label="Source">
+                <Field label={t("cameraDetail.source")}>
                   <Box
                     component="span"
+                    dir="ltr"
                     sx={{ wordBreak: "break-all", fontSize: 12, fontWeight: 400 }}
                   >
                     {redactUrl(camera?.rtsp_url)}
                   </Box>
                 </Field>
-                <Field label="Strategy">{camera?.strategy}</Field>
-                <Field label="Enabled">{camera?.enabled ? "Yes" : "No"}</Field>
-                <Field label="Exit region">
+                <Field label={t("cameraDetail.strategy")}>{camera?.strategy}</Field>
+                <Field label={t("cameraDetail.enabled")}>{camera?.enabled ? t("cameraDetail.yes") : t("cameraDetail.no")}</Field>
+                <Field label={t("cameraDetail.exitRegion")}>
                   {camera?.door_polygon?.length
-                    ? `${camera.door_polygon.length} points`
-                    : "not drawn"}
+                    ? t("cameraDetail.lengthPoints", { length: camera.door_polygon.length })
+                    : t("cameraDetail.notDrawn")}
                 </Field>
-                <Field label="Reference captured">
+                <Field label={t("cameraDetail.referenceCaptured")}>
                   {camera?.reference_captured_at
                     ? formatDateTime(camera.reference_captured_at)
                     : "—"}
                 </Field>
-                <Field label="CLEAR / FULL">
+                <Field label={t("cameraDetail.clearFull")}>
                   {`${camera?.clear_min_pct ?? "default"} / ${camera?.full_max_pct ?? "default"}`}
                 </Field>
-                <Field label="Confirm / clear">
+                <Field label={t("cameraDetail.confirmClear")}>
                   {`${camera?.confirm_seconds ?? "default"}s / ${camera?.clear_seconds ?? "default"}s`}
                 </Field>
-                <Field label="Process FPS">{camera?.process_fps ?? "default"}</Field>
+                <Field label={t("cameraDetail.processFps")}>{camera?.process_fps ?? t("cameraDetail.default")}</Field>
               </CardContent>
             </Card>
 
             <Card>
               <CardContent>
                 <Typography variant="subtitle2" gutterBottom>
-                  Pipeline
+                  {t("cameraDetail.pipeline")}
                 </Typography>
                 <Divider sx={{ mb: 1 }} />
-                <Field label="Frames processed">{formatNumber(status?.frames_processed)}</Field>
-                <Field label="Effective FPS">
+                <Field label={t("cameraDetail.framesProcessed")}>{formatNumber(status?.frames_processed)}</Field>
+                <Field label={t("cameraDetail.effectiveFps")}>
                   {status ? Number(status.fps ?? 0).toFixed(1) : "—"}
                 </Field>
-                <Field label="Inference">
-                  {status ? `${Number(status.inference_ms ?? 0).toFixed(0)} ms` : "—"}
+                <Field label={t("cameraDetail.inference")}>
+                  {status ? t("cameraDetail.v0Ms", { v0: Number(status.inference_ms ?? 0).toFixed(0) }) : "—"}
                 </Field>
-                <Field label="Reconnects">{formatNumber(status?.reconnects)}</Field>
-                <Field label="Last frame">
+                <Field label={t("cameraDetail.reconnects")}>{formatNumber(status?.reconnects)}</Field>
+                <Field label={t("cameraDetail.lastFrame")}>
                   {status?.last_frame_at ? fromNow(status.last_frame_at) : "—"}
                 </Field>
                 <Button
@@ -389,7 +400,7 @@ export default function CameraDetail() {
                   fullWidth
                   variant="outlined"
                 >
-                  {testingAlert ? "Sending…" : "Send test alert"}
+                  {testingAlert ? t("cameraDetail.sending") : t("cameraDetail.sendTestAlert")}
                 </Button>
               </CardContent>
             </Card>
@@ -400,9 +411,9 @@ export default function CameraDetail() {
           <Card>
             <CardContent>
               <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Typography variant="subtitle2">Recent blockage events</Typography>
+                <Typography variant="subtitle2">{t("cameraDetail.recentBlockageEvents")}</Typography>
                 <Button size="small" component={RouterLink} to={`/events?camera_id=${cameraId}`}>
-                  View all
+                  {t("cameraDetail.viewAll")}
                 </Button>
               </Stack>
               <Divider sx={{ my: 1.5 }} />
@@ -410,12 +421,12 @@ export default function CameraDetail() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Started</TableCell>
-                      <TableCell>Duration</TableCell>
-                      <TableCell>State</TableCell>
-                      <TableCell>Peak</TableCell>
-                      <TableCell align="right">Min accessible</TableCell>
-                      <TableCell align="right">Peak risk</TableCell>
+                      <TableCell>{t("cameraDetail.started")}</TableCell>
+                      <TableCell>{t("cameraDetail.duration")}</TableCell>
+                      <TableCell>{t("cameraDetail.state")}</TableCell>
+                      <TableCell>{t("cameraDetail.peak")}</TableCell>
+                      <TableCell align="right">{t("cameraDetail.minAccessible")}</TableCell>
+                      <TableCell align="right">{t("cameraDetail.peakRisk")}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -424,7 +435,7 @@ export default function CameraDetail() {
                         <TableCell>{formatDateTime(event.started_at)}</TableCell>
                         <TableCell>
                           {event.ended_at ? formatDuration(event.duration_s) : (
-                            <Chip size="small" color="warning" label="open" />
+                            <Chip size="small" color="warning" label={t("cameraDetail.open")} />
                           )}
                         </TableCell>
                         <TableCell>
@@ -445,14 +456,15 @@ export default function CameraDetail() {
                 </Table>
               ) : (
                 <EmptyState
-                  title="No blockage events recorded"
-                  description="Events open only once an obstruction has persisted past the confirm window, so brief passers-by never appear here."
+                  title={t("cameraDetail.noBlockageEventsRecorded")}
+                  description={t("cameraDetail.eventsOpenOnlyOnceAn")}
                 />
               )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+      <ProbeDialog {...probe.dialogProps} />
     </Box>
   );
 }

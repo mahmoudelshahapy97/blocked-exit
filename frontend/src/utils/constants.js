@@ -1,3 +1,4 @@
+import i18n from "i18next";
 /** Mirrors app/core/enums.py — keep the two in step. */
 
 export const BLOCKAGE_STATE = {
@@ -33,8 +34,8 @@ export const STRATEGY = {
 };
 
 export const STRATEGY_LABEL = {
-  zone_based: "Zone based",
-  door_centric: "Door centric",
+  get zone_based() { return i18n.t("constants.zoneBased"); },
+  get door_centric() { return i18n.t("constants.doorCentric"); },
 };
 
 export const WORKER_STATE = {
@@ -79,6 +80,4 @@ export const WORKER_COLOR = {
 export const POLL_INTERVAL_MS =
   Number(import.meta.env.VITE_POLL_INTERVAL_MS) || 3000;
 
-/** The backend's password rule (app/schemas/auth.py), for form hints. */
-export const PASSWORD_HELP =
-  "At least 10 characters, with three of: lowercase, uppercase, digit, symbol.";
+

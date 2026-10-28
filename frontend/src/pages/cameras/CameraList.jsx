@@ -3,12 +3,6 @@ import { Link as RouterLink, useNavigate } from "react-router-dom";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
-import Chip from "@mui/material/Chip";
-import CircularProgress from "@mui/material/CircularProgress";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import Menu from "@mui/material/Menu";
 import MenuItem from "@mui/material/MenuItem";
@@ -44,6 +38,8 @@ import { RoleGate } from "../../components/ProtectedRoute";
 import PageHeader from "../../components/PageHeader";
 import { StateChip, StrategyChip, WorkerChip } from "../../components/StatusChips";
 import { formatPct } from "../../utils/format";
+import { useTranslation } from "react-i18next";
+import { ProbeDialog, useProbe } from "@insighteye/ui";
 
 /** "Cairo HQ · East wing · Building 1 · Floor 2 · Loading dock" */
 const placeOf = (camera) =>
@@ -51,85 +47,15 @@ const placeOf = (camera) =>
     .filter(Boolean)
     .join(" · ");
 
-/** Results of "Test connection" for one exit or all of them. */
-function ProbeDialog({ results, onClose }) {
-  return (
-    <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Connection test</DialogTitle>
-      <DialogContent>
-        {results === null ? (
-          <Stack direction="row" spacing={2} alignItems="center" sx={{ py: 3 }}>
-            <CircularProgress size={22} />
-            <Typography variant="body2">
-              Opening each stream and reading a frame (at most four at a time)…
-            </Typography>
-          </Stack>
-        ) : (
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Exit</TableCell>
-                <TableCell>Result</TableCell>
-                <TableCell>Details</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {results.map((r) => (
-                <TableRow key={r.camera_id}>
-                  <TableCell>{r.camera_name}</TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      color={r.reachable ? "success" : "error"}
-                      label={r.reachable ? "reachable" : "unreachable"}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">
-                      {r.reachable
-                        ? [
-                            `${r.width}×${r.height}`,
-                            r.fps ? `${r.fps} fps` : null,
-                            `first frame in ${Math.round(r.latency_ms)} ms`,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")
-                        : r.error}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
-}
-
 export default function CameraList() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const toast = useToast();
   const [search, setSearch] = useState("");
   const [menu, setMenu] = useState({ anchor: null, camera: null });
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [probeResults, setProbeResults] = useState(undefined); // undefined: closed, null: running
-
-  const runProbe = async (cameraId) => {
-    setProbeResults(null);
-    try {
-      setProbeResults(
-        cameraId === undefined ? await camerasApi.probeAll() : [await camerasApi.probe(cameraId)]
-      );
-    } catch (err) {
-      toast.error(errorMessage(err));
-      setProbeResults(undefined);
-    }
-  };
+  const probe = useProbe(camerasApi, errorMessage);
 
   const {
     data: cameraList,
@@ -175,7 +101,7 @@ export default function CameraList() {
     setDeleting(true);
     try {
       await camerasApi.remove(pendingDelete.id);
-      toast.success(`Deleted ${pendingDelete.name}`);
+      toast.success(t("cameraList.deletedName", { name: pendingDelete.name }));
       setPendingDelete(null);
       await refreshAll();
     } catch (err) {
@@ -188,13 +114,13 @@ export default function CameraList() {
   return (
     <Box>
       <PageHeader
-        title="Exits"
-        subtitle="Registered cameras, their exit region, and what each worker is doing."
+        title={t("cameraList.exits")}
+        subtitle={t("cameraList.registeredCamerasTheirExitRegion")}
         actions={
           <>
             <TextField
               size="small"
-              placeholder="Search name, place, URL…"
+              placeholder={t("cameraList.searchNamePlaceUrl")}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               sx={{ minWidth: 240 }}
@@ -203,10 +129,10 @@ export default function CameraList() {
               <Button
                 color="inherit"
                 startIcon={<NetworkCheckIcon />}
-                onClick={() => runProbe()}
+                onClick={() => probe.probeAll()}
                 disabled={!cameraList?.length}
               >
-                Test all
+                {t("cameraList.testAll")}
               </Button>
             </RoleGate>
             <RoleGate minimum="member">
@@ -216,31 +142,31 @@ export default function CameraList() {
                 component={RouterLink}
                 to="/cameras/new"
               >
-                Add exit
+                {t("cameraList.addExit")}
               </Button>
             </RoleGate>
           </>
         }
       />
 
-      <ErrorState error={error} onRetry={refreshAll} title="Could not load cameras" />
+      <ErrorState error={error} onRetry={refreshAll} title={t("cameraList.couldNotLoadCameras")} />
 
       <Card>
         {loading && !cameraList ? (
-          <Loading label="Loading cameras…" />
+          <Loading label={t("cameraList.loadingCameras")} />
         ) : filtered.length === 0 ? (
           <EmptyState
-            title={search ? "No exit matches that search" : "No exits registered yet"}
+            title={search ? t("cameraList.noExitMatchesThatSearch") : t("cameraList.noExitsRegisteredYet")}
             description={
               search
-                ? "Try a different name, location or URL fragment."
-                : "Add a camera to start monitoring an emergency exit."
+                ? t("cameraList.tryADifferentNameLocation")
+                : t("cameraList.addACameraToStart")
             }
             action={
               !search && (
                 <RoleGate minimum="member">
                   <Button variant="contained" component={RouterLink} to="/cameras/new">
-                    Add exit
+                    {t("cameraList.addExit")}
                   </Button>
                 </RoleGate>
               )
@@ -251,14 +177,14 @@ export default function CameraList() {
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Exit</TableCell>
-                  <TableCell>Source</TableCell>
-                  <TableCell>Strategy</TableCell>
-                  <TableCell>Region</TableCell>
-                  <TableCell>Worker</TableCell>
-                  <TableCell>State</TableCell>
-                  <TableCell align="right">Accessible</TableCell>
-                  <TableCell align="right">Actions</TableCell>
+                  <TableCell>{t("cameraList.exit")}</TableCell>
+                  <TableCell>{t("cameraList.source")}</TableCell>
+                  <TableCell>{t("cameraList.strategy")}</TableCell>
+                  <TableCell>{t("cameraList.region")}</TableCell>
+                  <TableCell>{t("cameraList.worker")}</TableCell>
+                  <TableCell>{t("cameraList.state")}</TableCell>
+                  <TableCell align="right">{t("cameraList.accessible")}</TableCell>
+                  <TableCell align="right">{t("cameraList.actions")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -289,7 +215,7 @@ export default function CameraList() {
                         </Tooltip>
                         {!camera.enabled && (
                           <Typography variant="caption" color="warning.main">
-                            disabled
+                            {t("cameraList.disabled")}
                           </Typography>
                         )}
                       </TableCell>
@@ -299,11 +225,11 @@ export default function CameraList() {
                       <TableCell>
                         {points >= 3 ? (
                           <Typography variant="caption" color="success.main">
-                            {points} points
+                            {t("cameraList.pointsPoints", { points })}
                           </Typography>
                         ) : (
                           <Typography variant="caption" color="warning.main">
-                            not drawn
+                            {t("cameraList.notDrawn")}
                           </Typography>
                         )}
                       </TableCell>
@@ -320,7 +246,7 @@ export default function CameraList() {
                         <RoleGate minimum="member">
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                             {running ? (
-                              <Tooltip title="Stop monitoring">
+                              <Tooltip title={t("cameraList.stopMonitoring")}>
                                 <span>
                                   <IconButton
                                     size="small"
@@ -332,7 +258,7 @@ export default function CameraList() {
                                 </span>
                               </Tooltip>
                             ) : (
-                              <Tooltip title="Start monitoring">
+                              <Tooltip title={t("cameraList.startMonitoring")}>
                                 <span>
                                   <IconButton
                                     size="small"
@@ -373,7 +299,7 @@ export default function CameraList() {
           }}
         >
           <CropFreeIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Draw exit region
+          {t("cameraList.drawExitRegion")}
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -382,16 +308,16 @@ export default function CameraList() {
           }}
         >
           <EditIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Edit settings
+          {t("cameraList.editSettings")}
         </MenuItem>
         <MenuItem
           onClick={() => {
-            runProbe(menu.camera.id);
+            probe.probe(menu.camera.id);
             closeMenu();
           }}
         >
           <NetworkCheckIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Test connection
+          {t("cameraList.testConnection")}
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -400,7 +326,7 @@ export default function CameraList() {
           }}
         >
           <RestartAltIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Restart worker
+          {t("cameraList.restartWorker")}
         </MenuItem>
         <MenuItem
           onClick={() => {
@@ -410,21 +336,19 @@ export default function CameraList() {
           sx={{ color: "error.main" }}
         >
           <DeleteIcon fontSize="small" sx={{ mr: 1.5 }} />
-          Delete
+          {t("cameraList.delete")}
         </MenuItem>
       </Menu>
 
-      {probeResults !== undefined && (
-        <ProbeDialog results={probeResults} onClose={() => setProbeResults(undefined)} />
-      )}
+      <ProbeDialog {...probe.dialogProps} />
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
-        title={`Delete ${pendingDelete?.name}?`}
+        title={t("cameraList.deleteV0", { v0: pendingDelete?.name })}
         // The FK cascade is real and worth spelling out — an operator deleting
         // a camera to "clean up" would otherwise lose its incident history.
-        description="This stops its worker and permanently removes the camera together with every blockage event and alert recorded for it."
-        confirmLabel="Delete"
+        description={t("cameraList.thisStopsItsWorkerAnd")}
+        confirmLabel={t("cameraList.delete")}
         confirmColor="error"
         busy={deleting}
         onConfirm={handleDelete}

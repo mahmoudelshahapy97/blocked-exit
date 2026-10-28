@@ -37,6 +37,7 @@ import { EmptyState, ErrorState, Loading } from "../components/DataStates";
 import PageHeader from "../components/PageHeader";
 import { ALERT_CHANNEL, ALERT_STATUS } from "../utils/constants";
 import { formatDateTime, fromNow } from "../utils/format";
+import { useTranslation } from "react-i18next";
 
 const STATUS_COLOR = {
   sent: "success",
@@ -46,6 +47,7 @@ const STATUS_COLOR = {
 };
 
 function AcknowledgeDialog({ alert, onClose, onDone }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [name, setName] = useState(() => localStorage.getItem("blocked-exit:ack-name") || "");
   const [busy, setBusy] = useState(false);
@@ -58,7 +60,7 @@ function AcknowledgeDialog({ alert, onClose, onDone }) {
       // Remembered because the same operator acknowledges many alerts in a
       // shift and retyping their name each time is pure friction.
       localStorage.setItem("blocked-exit:ack-name", name.trim());
-      toast.success(`Alert #${alert.id} acknowledged`);
+      toast.success(t("alerts.alertIdAcknowledged", { id: alert.id }));
       onDone();
       onClose();
     } catch (err) {
@@ -70,15 +72,15 @@ function AcknowledgeDialog({ alert, onClose, onDone }) {
 
   return (
     <Dialog open={Boolean(alert)} onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Acknowledge alert #{alert?.id}</DialogTitle>
+      <DialogTitle>{t("alerts.acknowledgeAlertV0", { v0: alert?.id })}</DialogTitle>
       <DialogContent>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Recorded against this alert so the log shows who responded.
+          {t("alerts.recordedAgainstThisAlertSo")}
         </Typography>
         <TextField
           autoFocus
           fullWidth
-          label="Your name"
+          label={t("alerts.yourName")}
           value={name}
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => event.key === "Enter" && submit()}
@@ -86,10 +88,10 @@ function AcknowledgeDialog({ alert, onClose, onDone }) {
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} color="inherit" disabled={busy}>
-          Cancel
+          {t("alerts.cancel")}
         </Button>
         <Button onClick={submit} variant="contained" disabled={busy || !name.trim()}>
-          {busy ? "Saving…" : "Acknowledge"}
+          {busy ? t("alerts.saving") : t("alerts.acknowledge")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -97,9 +99,10 @@ function AcknowledgeDialog({ alert, onClose, onDone }) {
 }
 
 function PayloadDialog({ alert, onClose }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={Boolean(alert)} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Alert #{alert?.id} payload</DialogTitle>
+      <DialogTitle>{t("alerts.alertV0Payload", { v0: alert?.id })}</DialogTitle>
       <DialogContent>
         {alert?.error && (
           <Typography variant="body2" color="error.main" sx={{ mb: 2 }}>
@@ -122,13 +125,14 @@ function PayloadDialog({ alert, onClose }) {
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose}>{t("alerts.close")}</Button>
       </DialogActions>
     </Dialog>
   );
 }
 
 export default function Alerts() {
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [acknowledging, setAcknowledging] = useState(null);
   const [viewing, setViewing] = useState(null);
@@ -187,11 +191,11 @@ export default function Alerts() {
   return (
     <Box>
       <PageHeader
-        title="Alerts"
-        subtitle="Delivery attempts per channel. Nothing fires until a blockage has outlasted ALERT_MIN_DURATION_S."
+        title={t("alerts.alerts")}
+        subtitle={t("alerts.deliveryAttemptsPerChannelNothing")}
         actions={
           <Button startIcon={<RefreshIcon />} onClick={refresh} color="inherit">
-            Refresh
+            {t("alerts.refresh")}
           </Button>
         }
       />
@@ -201,12 +205,12 @@ export default function Alerts() {
           <TextField
             select
             size="small"
-            label="Exit"
+            label={t("alerts.exit")}
             value={cameraId}
             onChange={(event) => setParam({ camera_id: event.target.value })}
             sx={{ minWidth: 200 }}
           >
-            <MenuItem value="">All exits</MenuItem>
+            <MenuItem value="">{t("alerts.allExits")}</MenuItem>
             {(cameraList || []).map((camera) => (
               <MenuItem key={camera.id} value={camera.id}>
                 {camera.name}
@@ -217,12 +221,12 @@ export default function Alerts() {
           <TextField
             select
             size="small"
-            label="Status"
+            label={t("alerts.status")}
             value={status}
             onChange={(event) => setParam({ status: event.target.value })}
             sx={{ minWidth: 150 }}
           >
-            <MenuItem value="">Any status</MenuItem>
+            <MenuItem value="">{t("alerts.anyStatus")}</MenuItem>
             {Object.values(ALERT_STATUS).map((value) => (
               <MenuItem key={value} value={value}>
                 {value}
@@ -233,12 +237,12 @@ export default function Alerts() {
           <TextField
             select
             size="small"
-            label="Channel"
+            label={t("alerts.channel")}
             value={channel}
             onChange={(event) => setParam({ channel: event.target.value })}
             sx={{ minWidth: 150 }}
           >
-            <MenuItem value="">Any channel</MenuItem>
+            <MenuItem value="">{t("alerts.anyChannel")}</MenuItem>
             {Object.values(ALERT_CHANNEL).map((value) => (
               <MenuItem key={value} value={value}>
                 {value}
@@ -253,25 +257,25 @@ export default function Alerts() {
                 onChange={(event) => setParam({ unacknowledged_only: event.target.checked })}
               />
             }
-            label="Unacknowledged only"
+            label={t("alerts.unacknowledgedOnly")}
           />
 
           <Box sx={{ flexGrow: 1 }} />
           <Typography variant="body2" color="text.secondary">
-            {data ? `${data.total} alert${data.total === 1 ? "" : "s"}` : ""}
+            {data ? t("alerts.totalAlerts", { count: data.total }) : ""}
           </Typography>
         </Stack>
       </Card>
 
-      <ErrorState error={error} onRetry={refresh} title="Could not load alerts" />
+      <ErrorState error={error} onRetry={refresh} title={t("alerts.couldNotLoadAlerts")} />
 
       <Card>
         {loading && !data ? (
-          <Loading label="Loading alerts…" />
+          <Loading label={t("alerts.loadingAlerts")} />
         ) : items.length === 0 ? (
           <EmptyState
-            title="No alerts match these filters"
-            description="Alerts need a delivery channel configured on the backend — WEBHOOK_URL, or SMTP_HOST together with ALERT_EMAIL_TO."
+            title={t("alerts.noAlertsMatchTheseFilters")}
+            description={t("alerts.alertsNeedADeliveryChannel")}
           />
         ) : (
           <>
@@ -280,14 +284,14 @@ export default function Alerts() {
                 <TableHead>
                   <TableRow>
                     <TableCell>#</TableCell>
-                    <TableCell>Exit</TableCell>
-                    <TableCell>Event</TableCell>
-                    <TableCell>Channel</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell>Created</TableCell>
-                    <TableCell>Sent</TableCell>
-                    <TableCell>Acknowledged</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                    <TableCell>{t("alerts.exit")}</TableCell>
+                    <TableCell>{t("alerts.event")}</TableCell>
+                    <TableCell>{t("alerts.channel")}</TableCell>
+                    <TableCell>{t("alerts.status")}</TableCell>
+                    <TableCell>{t("alerts.created")}</TableCell>
+                    <TableCell>{t("alerts.sent")}</TableCell>
+                    <TableCell>{t("alerts.acknowledged")}</TableCell>
+                    <TableCell align="right">{t("alerts.actions")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -301,7 +305,7 @@ export default function Alerts() {
                           to={`/cameras/${alert.camera_id}`}
                           sx={{ textTransform: "none", p: 0, minWidth: 0 }}
                         >
-                          {cameraNames.get(alert.camera_id) || `Camera ${alert.camera_id}`}
+                          {cameraNames.get(alert.camera_id) || t("alerts.cameraCameraId", { camera_id: alert.camera_id })}
                         </Button>
                       </TableCell>
                       <TableCell>
@@ -338,7 +342,7 @@ export default function Alerts() {
                               size="small"
                               color="success"
                               variant="outlined"
-                              label={alert.acknowledged_by || "acknowledged"}
+                              label={alert.acknowledged_by || t("alerts.acknowledged2")}
                             />
                           </Tooltip>
                         ) : (
@@ -347,14 +351,14 @@ export default function Alerts() {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                          <Tooltip title="View payload">
+                          <Tooltip title={t("alerts.viewPayload")}>
                             <IconButton size="small" onClick={() => setViewing(alert)}>
                               <CodeIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                           <Tooltip
                             title={
-                              alert.acknowledged_at ? "Already acknowledged" : "Acknowledge"
+                              alert.acknowledged_at ? t("alerts.alreadyAcknowledged") : t("alerts.acknowledge")
                             }
                           >
                             <span>

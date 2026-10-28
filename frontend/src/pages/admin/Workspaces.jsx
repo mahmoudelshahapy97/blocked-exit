@@ -39,10 +39,12 @@ import { EmptyState, ErrorState, Loading } from "../../components/DataStates";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import PageHeader from "../../components/PageHeader";
 import { formatDateTime } from "../../utils/format";
+import { useTranslation } from "react-i18next";
 
 const WORKSPACE_ROLES = ["viewer", "member", "admin"];
 
 function WorkspaceDialog({ onClose, onDone }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [form, setForm] = useState({ name: "", description: "", camera_quota: 25 });
   const [busy, setBusy] = useState(false);
@@ -59,7 +61,7 @@ function WorkspaceDialog({ onClose, onDone }) {
         description: form.description || undefined,
         camera_quota: Number(form.camera_quota),
       });
-      toast.success(`Created ${created.name}`);
+      toast.success(t("workspaces.createdName", { name: created.name }));
       onDone(created);
     } catch (err) {
       setError(errorMessage(err));
@@ -71,13 +73,13 @@ function WorkspaceDialog({ onClose, onDone }) {
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
       <Box component="form" onSubmit={submit}>
-        <DialogTitle>Add workspace</DialogTitle>
+        <DialogTitle>{t("workspaces.addWorkspace")}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {error && <Alert severity="error">{error}</Alert>}
-            <TextField label="Name" value={form.name} onChange={set("name")} required autoFocus fullWidth />
+            <TextField label={t("workspaces.name")} value={form.name} onChange={set("name")} required autoFocus fullWidth />
             <TextField
-              label="Description"
+              label={t("workspaces.description")}
               value={form.description}
               onChange={set("description")}
               multiline
@@ -85,7 +87,7 @@ function WorkspaceDialog({ onClose, onDone }) {
               fullWidth
             />
             <TextField
-              label="Camera quota"
+              label={t("workspaces.cameraQuota")}
               type="number"
               value={form.camera_quota}
               onChange={set("camera_quota")}
@@ -96,9 +98,9 @@ function WorkspaceDialog({ onClose, onDone }) {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("workspaces.cancel")}</Button>
           <Button type="submit" variant="contained" disabled={busy || !form.name.trim()}>
-            Create
+            {t("workspaces.create")}
           </Button>
         </DialogActions>
       </Box>
@@ -107,6 +109,7 @@ function WorkspaceDialog({ onClose, onDone }) {
 }
 
 function AddMemberDialog({ workspace, existingUserIds, onClose, onDone }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const { data: users } = useAsync((opts) => authApi.listUsers(opts));
   const [userId, setUserId] = useState("");
@@ -120,7 +123,7 @@ function AddMemberDialog({ workspace, existingUserIds, onClose, onDone }) {
     setError(null);
     try {
       const member = await workspacesApi.addMember(workspace.id, { user_id: Number(userId), role });
-      toast.success(`Added ${member.username} as ${role}`);
+      toast.success(t("workspaces.addedUsernameAsRole", { username: member.username, role }));
       onDone();
     } catch (err) {
       setError(errorMessage(err));
@@ -131,19 +134,19 @@ function AddMemberDialog({ workspace, existingUserIds, onClose, onDone }) {
 
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>Add member to {workspace.name}</DialogTitle>
+      <DialogTitle>{t("workspaces.addMemberToName", { name: workspace.name })}</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1 }}>
           {error && <Alert severity="error">{error}</Alert>}
           <TextField
             select
-            label="User"
+            label={t("workspaces.user")}
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             helperText={
               users && !candidates.length
-                ? "Everyone is already a member. Create accounts under Users."
-                : "Accounts are created under Users"
+                ? t("workspaces.everyoneIsAlreadyAMember")
+                : t("workspaces.accountsAreCreatedUnderUsers")
             }
             fullWidth
           >
@@ -153,7 +156,7 @@ function AddMemberDialog({ workspace, existingUserIds, onClose, onDone }) {
               </MenuItem>
             ))}
           </TextField>
-          <TextField select label="Role" value={role} onChange={(e) => setRole(e.target.value)} fullWidth>
+          <TextField select label={t("workspaces.role")} value={role} onChange={(e) => setRole(e.target.value)} fullWidth>
             {WORKSPACE_ROLES.map((r) => (
               <MenuItem key={r} value={r}>
                 {r}
@@ -163,9 +166,9 @@ function AddMemberDialog({ workspace, existingUserIds, onClose, onDone }) {
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{t("workspaces.cancel")}</Button>
         <Button variant="contained" onClick={submit} disabled={busy || userId === ""}>
-          Add
+          {t("workspaces.add")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -173,6 +176,7 @@ function AddMemberDialog({ workspace, existingUserIds, onClose, onDone }) {
 }
 
 function MembersTab({ workspace }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const { refreshProfile } = useAuth();
   const { data: members, error, loading, refresh } = useAsync(
@@ -185,7 +189,7 @@ function MembersTab({ workspace }) {
   const changeRole = async (member, role) => {
     try {
       await workspacesApi.updateMember(workspace.id, member.id, role);
-      toast.success(`${member.username} is now ${role}`);
+      toast.success(t("workspaces.usernameIsNowRole", { username: member.username, role }));
       refresh();
       refreshProfile();
     } catch (err) {
@@ -196,7 +200,7 @@ function MembersTab({ workspace }) {
   const remove = async () => {
     try {
       await workspacesApi.removeMember(workspace.id, removeTarget.id);
-      toast.success(`Removed ${removeTarget.username}`);
+      toast.success(t("workspaces.removedUsername", { username: removeTarget.username }));
       refresh();
       refreshProfile();
     } catch (err) {
@@ -210,22 +214,22 @@ function MembersTab({ workspace }) {
     <Box>
       <Stack direction="row" justifyContent="flex-end" sx={{ mb: 2 }}>
         <Button variant="contained" startIcon={<PersonAddIcon />} onClick={() => setAddOpen(true)}>
-          Add member
+          {t("workspaces.addMember")}
         </Button>
       </Stack>
       {error && <ErrorState error={error} onRetry={refresh} />}
       {loading && !members ? (
-        <Loading label="Loading members…" />
+        <Loading label={t("workspaces.loadingMembers")} />
       ) : (
         <Card>
           <TableContainer>
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Username</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell align="right">Actions</TableCell>
+                  <TableCell>{t("workspaces.username")}</TableCell>
+                  <TableCell>{t("workspaces.email")}</TableCell>
+                  <TableCell>{t("workspaces.role")}</TableCell>
+                  <TableCell align="right">{t("workspaces.actions")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -243,7 +247,7 @@ function MembersTab({ workspace }) {
                       </Select>
                     </TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Remove from workspace">
+                      <Tooltip title={t("workspaces.removeFromWorkspace")}>
                         <IconButton size="small" color="error" onClick={() => setRemoveTarget(m)}>
                           <DeleteOutlineIcon fontSize="small" />
                         </IconButton>
@@ -269,9 +273,9 @@ function MembersTab({ workspace }) {
       )}
       <ConfirmDialog
         open={Boolean(removeTarget)}
-        title="Remove member"
-        description={removeTarget ? `Remove ${removeTarget.username} from ${workspace.name}?` : ""}
-        confirmLabel="Remove"
+        title={t("workspaces.removeMember")}
+        description={removeTarget ? t("workspaces.removeUsernameFromName", { username: removeTarget.username, name: workspace.name }) : ""}
+        confirmLabel={t("workspaces.remove")}
         confirmColor="error"
         onConfirm={remove}
         onClose={() => setRemoveTarget(null)}
@@ -281,6 +285,7 @@ function MembersTab({ workspace }) {
 }
 
 function SettingsTab({ workspace, onSaved }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [form, setForm] = useState({
     name: workspace.name,
@@ -299,7 +304,7 @@ function SettingsTab({ workspace, onSaved }) {
         description: form.description,
         camera_quota: Number(form.camera_quota),
       });
-      toast.success("Workspace saved");
+      toast.success(t("workspaces.workspaceSaved"));
       onSaved();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -312,9 +317,9 @@ function SettingsTab({ workspace, onSaved }) {
     <Card component="form" onSubmit={save} sx={{ maxWidth: 560 }}>
       <CardContent>
         <Stack spacing={2}>
-          <TextField label="Name" value={form.name} onChange={set("name")} required fullWidth />
+          <TextField label={t("workspaces.name")} value={form.name} onChange={set("name")} required fullWidth />
           <TextField
-            label="Description"
+            label={t("workspaces.description")}
             value={form.description}
             onChange={set("description")}
             multiline
@@ -322,17 +327,17 @@ function SettingsTab({ workspace, onSaved }) {
             fullWidth
           />
           <TextField
-            label="Camera quota"
+            label={t("workspaces.cameraQuota")}
             type="number"
             value={form.camera_quota}
             onChange={set("camera_quota")}
             inputProps={{ min: 1, max: 10000 }}
-            helperText={`${workspace.camera_count} in use`}
+            helperText={t("workspaces.cameraCountInUse", { camera_count: workspace.camera_count })}
             fullWidth
           />
           <Box>
             <Button type="submit" variant="contained" disabled={busy}>
-              Save
+              {t("workspaces.save")}
             </Button>
           </Box>
         </Stack>
@@ -342,17 +347,18 @@ function SettingsTab({ workspace, onSaved }) {
 }
 
 function CamerasTab({ workspace }) {
+  const { t } = useTranslation();
   const { data: cameras, error, loading, refresh } = useAsync(
     (opts) => workspacesApi.cameras(workspace.id, opts),
     [workspace.id]
   );
   if (error) return <ErrorState error={error} onRetry={refresh} />;
-  if (loading && !cameras) return <Loading label="Loading cameras…" />;
+  if (loading && !cameras) return <Loading label={t("workspaces.loadingCameras")} />;
   if (!cameras?.length) {
     return (
       <EmptyState
-        title="No cameras"
-        description="Switch into this workspace to add exits."
+        title={t("workspaces.noCameras")}
+        description={t("workspaces.switchIntoThisWorkspaceTo")}
       />
     );
   }
@@ -362,11 +368,11 @@ function CamerasTab({ workspace }) {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Location</TableCell>
-              <TableCell>Source</TableCell>
-              <TableCell>Strategy</TableCell>
-              <TableCell>Status</TableCell>
+              <TableCell>{t("workspaces.name")}</TableCell>
+              <TableCell>{t("workspaces.location")}</TableCell>
+              <TableCell>{t("workspaces.source")}</TableCell>
+              <TableCell>{t("workspaces.strategy")}</TableCell>
+              <TableCell>{t("workspaces.status")}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -381,7 +387,7 @@ function CamerasTab({ workspace }) {
                 <TableCell>
                   <Chip
                     size="small"
-                    label={c.enabled ? "enabled" : "disabled"}
+                    label={c.enabled ? t("workspaces.enabled") : t("workspaces.disabled")}
                     color={c.enabled ? "success" : "default"}
                     variant="outlined"
                   />
@@ -396,6 +402,7 @@ function CamerasTab({ workspace }) {
 }
 
 function WorkspaceDetail({ workspaceId }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const toast = useToast();
   const { activeWorkspaceId, switchWorkspace, refreshProfile } = useAuth();
@@ -407,7 +414,7 @@ function WorkspaceDetail({ workspaceId }) {
   );
 
   if (error) return <ErrorState error={error} onRetry={refresh} />;
-  if (loading && !workspace) return <Loading label="Loading workspace…" />;
+  if (loading && !workspace) return <Loading label={t("workspaces.loadingWorkspace")} />;
 
   const run = async (action, message) => {
     try {
@@ -440,7 +447,7 @@ function WorkspaceDetail({ workspaceId }) {
   return (
     <Box>
       <Button component={RouterLink} to="/admin/workspaces" startIcon={<ArrowBackIcon />} sx={{ mb: 1 }}>
-        All workspaces
+        {t("workspaces.allWorkspaces")}
       </Button>
       <PageHeader
         title={workspace.name}
@@ -455,25 +462,25 @@ function WorkspaceDetail({ workspaceId }) {
                 variant="outlined"
                 onClick={() =>
                   switchWorkspace(workspace.id).then(
-                    () => toast.success(`Switched to ${workspace.name}`),
+                    () => toast.success(t("workspaces.switchedToName", { name: workspace.name })),
                     (err) => toast.error(errorMessage(err))
                   )
                 }
               >
-                Switch to it
+                {t("workspaces.switchToIt")}
               </Button>
             )}
             {workspace.is_active ? (
               <Button color="warning" variant="outlined" onClick={() => setConfirm("deactivate")}>
-                Deactivate
+                {t("workspaces.deactivate")}
               </Button>
             ) : (
               <>
                 <Button variant="outlined" onClick={reactivate}>
-                  Reactivate
+                  {t("workspaces.reactivate")}
                 </Button>
                 <Button color="error" variant="contained" onClick={() => setConfirm("delete")}>
-                  Delete
+                  {t("workspaces.delete")}
                 </Button>
               </>
             )}
@@ -482,14 +489,14 @@ function WorkspaceDetail({ workspaceId }) {
       />
       {!workspace.is_active && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          Deactivated: nobody can work in this workspace and its cameras are stopped.
+          {t("workspaces.deactivatedNobodyCanWorkIn")}
         </Alert>
       )}
 
       <Tabs value={tab} onChange={(_, value) => setTab(value)} sx={{ mb: 2 }}>
-        <Tab value="members" label="Members" />
-        <Tab value="settings" label="Settings" />
-        <Tab value="cameras" label="Cameras" />
+        <Tab value="members" label={t("workspaces.members")} />
+        <Tab value="settings" label={t("workspaces.settings")} />
+        <Tab value="cameras" label={t("workspaces.cameras")} />
       </Tabs>
       {tab === "members" && <MembersTab workspace={workspace} />}
       {tab === "settings" && <SettingsTab key={workspace.id} workspace={workspace} onSaved={refresh} />}
@@ -497,18 +504,18 @@ function WorkspaceDetail({ workspaceId }) {
 
       <ConfirmDialog
         open={confirm === "deactivate"}
-        title="Deactivate workspace"
-        description={`Stop every camera in ${workspace.name} and lock its members out until it is reactivated?`}
-        confirmLabel="Deactivate"
+        title={t("workspaces.deactivateWorkspace")}
+        description={t("workspaces.stopEveryCameraInName", { name: workspace.name })}
+        confirmLabel={t("workspaces.deactivate")}
         confirmColor="warning"
         onConfirm={deactivate}
         onClose={() => setConfirm(null)}
       />
       <ConfirmDialog
         open={confirm === "delete"}
-        title="Delete workspace"
-        description={`Permanently delete ${workspace.name} with all of its cameras, events and alerts? This cannot be undone.`}
-        confirmLabel="Delete"
+        title={t("workspaces.deleteWorkspace")}
+        description={t("workspaces.permanentlyDeleteNameWithAll", { name: workspace.name })}
+        confirmLabel={t("workspaces.delete")}
         confirmColor="error"
         onConfirm={remove}
         onClose={() => setConfirm(null)}
@@ -518,6 +525,7 @@ function WorkspaceDetail({ workspaceId }) {
 }
 
 function WorkspaceList() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { refreshProfile } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
@@ -528,27 +536,27 @@ function WorkspaceList() {
   return (
     <Box>
       <PageHeader
-        title="Workspaces"
-        subtitle="Every tenant on this deployment"
+        title={t("workspaces.workspaces")}
+        subtitle={t("workspaces.everyTenantOnThisDeployment")}
         actions={
           <Button variant="contained" startIcon={<AddIcon />} onClick={() => setCreateOpen(true)}>
-            Add workspace
+            {t("workspaces.addWorkspace")}
           </Button>
         }
       />
       {error && <ErrorState error={error} onRetry={refresh} />}
       {loading && !workspaces ? (
-        <Loading label="Loading workspaces…" />
+        <Loading label={t("workspaces.loadingWorkspaces")} />
       ) : (
         <Card>
           <TableContainer>
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Cameras</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell>Created</TableCell>
+                  <TableCell>{t("workspaces.name")}</TableCell>
+                  <TableCell>{t("workspaces.cameras")}</TableCell>
+                  <TableCell>{t("workspaces.status")}</TableCell>
+                  <TableCell>{t("workspaces.created")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -573,7 +581,7 @@ function WorkspaceList() {
                     <TableCell>
                       <Chip
                         size="small"
-                        label={w.is_active ? "active" : "deactivated"}
+                        label={w.is_active ? t("workspaces.active") : t("workspaces.deactivated")}
                         color={w.is_active ? "success" : "warning"}
                         variant="outlined"
                       />

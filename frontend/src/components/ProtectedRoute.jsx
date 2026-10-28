@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth, roleAtLeast } from "../context/AuthContext";
 import { Loading } from "./DataStates";
+import { useTranslation } from "react-i18next";
 
 /**
  * Route guard: renders its children (via <Outlet/>) only once a session is
@@ -8,10 +9,11 @@ import { Loading } from "./DataStates";
  * was headed so login can return them there.
  */
 export function ProtectedRoute() {
+  const { t } = useTranslation();
   const { status, isAuthenticated } = useAuth();
   const location = useLocation();
 
-  if (status === "loading") return <Loading label="Checking session…" height="60vh" />;
+  if (status === "loading") return <Loading label={t("protectedRoute.checkingSession")} height="60vh" />;
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
@@ -24,9 +26,10 @@ export function ProtectedRoute() {
  * as the platform's RequireSuperadmin does.
  */
 export function SuperadminRoute() {
+  const { t } = useTranslation();
   const { status, isAuthenticated, isSuperadmin } = useAuth();
 
-  if (status === "loading") return <Loading label="Checking session…" height="60vh" />;
+  if (status === "loading") return <Loading label={t("protectedRoute.checkingSession")} height="60vh" />;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (!isSuperadmin) return <Navigate to="/" replace />;
   return <Outlet />;

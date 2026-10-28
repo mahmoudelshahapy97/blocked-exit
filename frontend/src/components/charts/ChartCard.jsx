@@ -10,6 +10,8 @@ import BarChartIcon from "@mui/icons-material/BarChart";
 import TableRowsIcon from "@mui/icons-material/TableRows";
 
 import { EmptyState, ErrorState, Loading } from "../DataStates";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 
 /**
  * One chart with its table-view twin. Every value a chart shows is also in
@@ -25,12 +27,13 @@ export default function ChartCard({
   error,
   onRetry,
   empty,
-  emptyText = "No events match these filters.",
+  emptyText = i18n.t("chartCard.noEvents"),
   height = 300,
   chart,
   table,
   actions,
 }) {
+  const { t } = useTranslation();
   const [view, setView] = useState("chart");
   const firstLoad = loading && empty === undefined;
 
@@ -55,12 +58,12 @@ export default function ChartCard({
               exclusive
               value={view}
               onChange={(_, next) => next && setView(next)}
-              aria-label={`${title}: chart or table`}
+              aria-label={t("chartCard.titleChartOrTable", { title })}
             >
-              <ToggleButton value="chart" aria-label="Chart view">
+              <ToggleButton value="chart" aria-label={t("chartCard.chartView")}>
                 <BarChartIcon fontSize="small" />
               </ToggleButton>
-              <ToggleButton value="table" aria-label="Table view">
+              <ToggleButton value="table" aria-label={t("chartCard.tableView")}>
                 <TableRowsIcon fontSize="small" />
               </ToggleButton>
             </ToggleButtonGroup>
@@ -70,9 +73,9 @@ export default function ChartCard({
         {error ? (
           <ErrorState error={error} onRetry={onRetry} />
         ) : firstLoad ? (
-          <Loading label="Aggregating…" height={height} />
+          <Loading label={t("chartCard.aggregating")} height={height} />
         ) : empty ? (
-          <EmptyState title="Nothing to show" description={emptyText} />
+          <EmptyState title={t("chartCard.nothingToShow")} description={emptyText} />
         ) : (
           <Box sx={{ opacity: loading ? 0.5 : 1, transition: "opacity 150ms" }}>
             {view === "chart" && chart ? <Box sx={{ height }}>{chart}</Box> : table}

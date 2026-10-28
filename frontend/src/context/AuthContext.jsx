@@ -88,10 +88,11 @@ export function AuthProvider({ children }) {
       setError(null);
       try {
         await startSession(await authApi.login({ username, password }));
-        return true;
+        return { success: true };
       } catch (err) {
-        setError(errorMessage(err));
-        return false;
+        const message = errorMessage(err);
+        setError(message);
+        return { success: false, message };
       }
     },
     [startSession]

@@ -50,6 +50,8 @@ import StatCard from "../components/StatCard";
 import { EventStatusChip } from "../components/StatusChips";
 import { useChartTheme } from "../utils/chartTheme";
 import { formatDateTime, formatDuration, formatNumber, formatPct } from "../utils/format";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 
 ChartJS.register(
   CategoryScale,
@@ -63,19 +65,19 @@ ChartJS.register(
 );
 
 const TABS = [
-  { value: "overview", label: "Overview" },
-  { value: "incidents", label: "Incidents per exit" },
-  { value: "response", label: "Response times" },
-  { value: "breakdown", label: "Blocked time" },
-  { value: "confidence", label: "Confidence audit" },
-  { value: "daily", label: "Daily report" },
+  { value: "overview", get label() { return i18n.t("analytics.overview"); } },
+  { value: "incidents", get label() { return i18n.t("analytics.incidentsPerExit"); } },
+  { value: "response", get label() { return i18n.t("analytics.responseTimes"); } },
+  { value: "breakdown", get label() { return i18n.t("analytics.blockedTime"); } },
+  { value: "confidence", get label() { return i18n.t("analytics.confidenceAudit"); } },
+  { value: "daily", get label() { return i18n.t("analytics.dailyReport"); } },
 ];
 
 const QUICK_RANGES = [
-  { days: 1, label: "Today" },
-  { days: 7, label: "7 days" },
-  { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
+  { days: 1, get label() { return i18n.t("analytics.today"); } },
+  { days: 7, get label() { return i18n.t("analytics.7Days"); } },
+  { days: 30, get label() { return i18n.t("analytics.30Days"); } },
+  { days: 90, get label() { return i18n.t("analytics.90Days"); } },
 ];
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -119,6 +121,7 @@ function SimpleTable({ columns, rows, rowKey }) {
 
 // --- overview -----------------------------------------------------------------
 function TrendChart({ filters }) {
+  const { t } = useTranslation();
   const ct = useChartTheme();
   const [bucket, setBucket] = useState("");
   const { data, error, loading, refresh } = useFiltered(
@@ -132,8 +135,8 @@ function TrendChart({ filters }) {
 
   return (
     <ChartCard
-      title="Incidents over time"
-      subtitle={data ? `Per ${data.bucket}, ${data.timezone} time` : undefined}
+      title={t("analytics.incidentsOverTime")}
+      subtitle={data ? t("analytics.perBucketTimezoneTime", { bucket: data.bucket, timezone: data.timezone }) : undefined}
       loading={loading}
       error={error}
       onRetry={refresh}
@@ -160,8 +163,8 @@ function TrendChart({ filters }) {
           data={{
             labels: points.map(label),
             datasets: [
-              { label: "Incidents", data: points.map((p) => p.incidents), ...ct.line(ct.series[0]) },
-              { label: "Resolved", data: points.map((p) => p.resolved), ...ct.line(ct.series[2]) },
+              { label: t("analytics.incidents"), data: points.map((p) => p.incidents), ...ct.line(ct.series[0]) },
+              { label: t("analytics.resolved"), data: points.map((p) => p.resolved), ...ct.line(ct.series[2]) },
             ],
           }}
           options={{
@@ -179,8 +182,8 @@ function TrendChart({ filters }) {
           rows={points.filter((p) => p.incidents)}
           columns={[
             { label: data?.bucket === "hour" ? "Hour" : "Day", render: label },
-            { label: "Incidents", align: "right", render: (p) => p.incidents },
-            { label: "Resolved", align: "right", render: (p) => p.resolved },
+            { label: t("analytics.incidents"), align: "right", render: (p) => p.incidents },
+            { label: t("analytics.resolved"), align: "right", render: (p) => p.resolved },
           ]}
         />
       }
@@ -189,6 +192,7 @@ function TrendChart({ filters }) {
 }
 
 function Heatmap({ filters }) {
+  const { t } = useTranslation();
   const ct = useChartTheme();
   const { data, error, loading, refresh } = useFiltered(analytics.heatmap, filters);
   const cells = useMemo(() => {
@@ -201,7 +205,7 @@ function Heatmap({ filters }) {
     <Box sx={{ overflowX: "auto" }}>
       <Box
         role="grid"
-        aria-label="Incidents by weekday and hour"
+        aria-label={t("analytics.incidentsByWeekdayAndHour")}
         sx={{
           display: "grid",
           gridTemplateColumns: "36px repeat(24, minmax(14px, 1fr))",
@@ -226,7 +230,7 @@ function Heatmap({ filters }) {
           </Typography>,
           ...Array.from({ length: 24 }, (_, h) => {
             const n = cells.get(`${w}-${h}`) || 0;
-            const text = `${day} ${String(h).padStart(2, "0")}:00–${String(h + 1).padStart(2, "0")}:00 · ${n} incident${n === 1 ? "" : "s"}`;
+            const text = `${day} ${String(h).padStart(2, "0")}:00–${String(h + 1).padStart(2, "0")}:00 · ${t("analytics.incidentCount", { count: n })}`;
             return (
               <Tooltip key={`${w}-${h}`} title={text} disableInteractive>
                 <Box
@@ -248,7 +252,7 @@ function Heatmap({ filters }) {
       </Box>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1.5 }}>
         <Typography variant="caption" color="text.secondary">
-          Fewer
+          {t("analytics.fewer")}
         </Typography>
         <Stack direction="row" spacing="2px">
           {ct.ramp.map((color) => (
@@ -256,7 +260,7 @@ function Heatmap({ filters }) {
           ))}
         </Stack>
         <Typography variant="caption" color="text.secondary">
-          More · busiest hour slot: {max} incident{max === 1 ? "" : "s"} · empty slots are grey
+          {t("analytics.moreBusiestSlot", { count: max })}
         </Typography>
       </Stack>
     </Box>
@@ -264,8 +268,8 @@ function Heatmap({ filters }) {
 
   return (
     <ChartCard
-      title="When exits get blocked"
-      subtitle="Incidents by weekday and hour of day"
+      title={t("analytics.whenExitsGetBlocked")}
+      subtitle={t("analytics.incidentsByWeekdayAndHour2")}
       loading={loading}
       error={error}
       onRetry={refresh}
@@ -276,9 +280,9 @@ function Heatmap({ filters }) {
         <SimpleTable
           rows={[...(data || [])].sort((a, b) => b.incidents - a.incidents)}
           columns={[
-            { label: "Weekday", render: (c) => WEEKDAYS[c.weekday] },
-            { label: "Hour", render: (c) => `${String(c.hour).padStart(2, "0")}:00` },
-            { label: "Incidents", align: "right", render: (c) => c.incidents },
+            { label: t("analytics.weekday"), render: (c) => WEEKDAYS[c.weekday] },
+            { label: t("analytics.hour"), render: (c) => `${String(c.hour).padStart(2, "0")}:00` },
+            { label: t("analytics.incidents"), align: "right", render: (c) => c.incidents },
           ]}
         />
       }
@@ -287,6 +291,7 @@ function Heatmap({ filters }) {
 }
 
 function OverviewTab({ filters }) {
+  const { t } = useTranslation();
   const { data: summary, error, refresh } = useFiltered(
     // Without a From date the summary covers everything (ten years back).
     (f, opts) => analytics.summary(f.start_date ? 7 : 3650, opts, f),
@@ -294,40 +299,40 @@ function OverviewTab({ filters }) {
   );
   return (
     <Stack spacing={2}>
-      <ErrorState error={error} onRetry={refresh} title="Could not load the summary" />
+      <ErrorState error={error} onRetry={refresh} title={t("analytics.couldNotLoadTheSummary")} />
       <Grid container spacing={2}>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Incidents"
+            label={t("analytics.incidents")}
             value={summary ? formatNumber(summary.events_total) : "…"}
-            hint={summary ? `${summary.events_open} still blocked` : ""}
+            hint={summary ? t("analytics.eventsOpenStillBlocked", { events_open: summary.events_open }) : ""}
             icon={<EventNoteIcon />}
             color="warning"
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Average blockage"
+            label={t("analytics.averageBlockage")}
             value={summary ? formatDuration(summary.avg_duration_s) : "…"}
-            hint={summary ? `longest ${formatDuration(summary.max_duration_s)}` : ""}
+            hint={summary ? t("analytics.longestV0", { v0: formatDuration(summary.max_duration_s) }) : ""}
             icon={<TimerIcon />}
             color="secondary"
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Worst accessibility"
+            label={t("analytics.worstAccessibility")}
             value={summary ? formatPct(summary.avg_min_accessibility_pct) : "…"}
-            hint="average low point per incident"
+            hint={t("analytics.averageLowPointPerIncident")}
             icon={<DoorFrontIcon />}
             color="error"
           />
         </Grid>
         <Grid size={{ xs: 6, md: 3 }}>
           <StatCard
-            label="Alerts sent"
+            label={t("analytics.alertsSent")}
             value={summary ? formatNumber(summary.alerts_sent) : "…"}
-            hint={summary ? `${summary.cameras_monitored} of ${summary.cameras_total} exits monitored` : ""}
+            hint={summary ? t("analytics.camerasMonitoredOfCamerasTotal", { cameras_monitored: summary.cameras_monitored, cameras_total: summary.cameras_total }) : ""}
             icon={<NotificationsIcon />}
             color="info"
           />
@@ -341,6 +346,7 @@ function OverviewTab({ filters }) {
 
 // --- incidents per exit -----------------------------------------------------------
 function IncidentsTab({ filters }) {
+  const { t } = useTranslation();
   const ct = useChartTheme();
   const { data, error, loading, refresh } = useFiltered(analytics.incidentsPerCamera, filters);
   const rows = data || [];
@@ -358,15 +364,15 @@ function IncidentsTab({ filters }) {
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Chip label={`${rows.length} exit${rows.length === 1 ? "" : "s"}`} />
-        <Chip label={`${totals.events} incidents`} />
-        <Chip label={`${totals.acknowledged} acknowledged`} />
-        <Chip label={`${totals.resolved} resolved`} />
-        <Chip label={`${totals.events - totals.resolved} open`} variant="outlined" />
+        <Chip label={t("analytics.exitCount", { count: rows.length })} />
+        <Chip label={t("analytics.eventsIncidents", { events: totals.events })} />
+        <Chip label={t("analytics.acknowledgedAcknowledged", { acknowledged: totals.acknowledged })} />
+        <Chip label={t("analytics.resolvedResolved", { resolved: totals.resolved })} />
+        <Chip label={t("analytics.v0Open", { v0: totals.events - totals.resolved })} variant="outlined" />
       </Stack>
       <ChartCard
-        title="Incidents per exit"
-        subtitle="Blockage episodes, and how many operators acknowledged and resolved"
+        title={t("analytics.incidentsPerExit")}
+        subtitle={t("analytics.blockageEpisodesAndHowMany")}
         loading={loading}
         error={error}
         onRetry={refresh}
@@ -377,9 +383,9 @@ function IncidentsTab({ filters }) {
             data={{
               labels: rows.map((r) => r.camera_name),
               datasets: [
-                { label: "Incidents", data: rows.map((r) => r.events), ...ct.bar(ct.series[0]) },
-                { label: "Acknowledged", data: rows.map((r) => r.acknowledged), ...ct.bar(ct.series[1]) },
-                { label: "Resolved", data: rows.map((r) => r.resolved), ...ct.bar(ct.series[2]) },
+                { label: t("analytics.incidents"), data: rows.map((r) => r.events), ...ct.bar(ct.series[0]) },
+                { label: t("analytics.acknowledged"), data: rows.map((r) => r.acknowledged), ...ct.bar(ct.series[1]) },
+                { label: t("analytics.resolved"), data: rows.map((r) => r.resolved), ...ct.bar(ct.series[2]) },
               ],
             }}
             options={{
@@ -397,7 +403,7 @@ function IncidentsTab({ filters }) {
             rowKey={(r) => r.camera_id}
             columns={[
               {
-                label: "Exit",
+                label: t("analytics.exit"),
                 render: (r) => (
                   <Button
                     size="small"
@@ -409,10 +415,10 @@ function IncidentsTab({ filters }) {
                   </Button>
                 ),
               },
-              { label: "Place", render: (r) => place(r) || "—" },
-              { label: "Incidents", align: "right", render: (r) => r.events },
-              { label: "Acknowledged", align: "right", render: (r) => r.acknowledged },
-              { label: "Resolved", align: "right", render: (r) => r.resolved },
+              { label: t("analytics.place"), render: (r) => place(r) || "—" },
+              { label: t("analytics.incidents"), align: "right", render: (r) => r.events },
+              { label: t("analytics.acknowledged"), align: "right", render: (r) => r.acknowledged },
+              { label: t("analytics.resolved"), align: "right", render: (r) => r.resolved },
             ]}
           />
         }
@@ -423,6 +429,7 @@ function IncidentsTab({ filters }) {
 
 // --- response times ------------------------------------------------------------------
 function ResponseTab({ filters }) {
+  const { t } = useTranslation();
   const ct = useChartTheme();
   const { data, error, loading, refresh } = useFiltered(analytics.responseTimes, filters);
   const s = data?.summary;
@@ -430,11 +437,11 @@ function ResponseTab({ filters }) {
 
   return (
     <Stack spacing={2}>
-      <ErrorState error={error} onRetry={refresh} title="Could not load response times" />
+      <ErrorState error={error} onRetry={refresh} title={t("analytics.couldNotLoadResponseTimes")} />
       <Grid container spacing={2}>
         {[
-          ["Time to acknowledge", s?.ack_median_s, s?.ack_p90_s, `${s?.acknowledged ?? 0} of ${s?.incidents ?? 0} acknowledged`],
-          ["Time to resolve", s?.resolve_median_s, s?.resolve_p90_s, `${s?.resolved ?? 0} resolved · ${s?.open ?? 0} open`],
+          [t("analytics.timeToAck"), s?.ack_median_s, s?.ack_p90_s, t("analytics.ackOf", { acknowledged: s?.acknowledged ?? 0, incidents: s?.incidents ?? 0 })],
+          [t("analytics.timeToResolve"), s?.resolve_median_s, s?.resolve_p90_s, t("analytics.resolvedOpen", { resolved: s?.resolved ?? 0, open: s?.open ?? 0 })],
         ].map(([label, median, p90, hint]) => (
           <Grid key={label} size={{ xs: 12, md: 6 }}>
             <Card sx={{ height: "100%" }}>
@@ -448,13 +455,13 @@ function ResponseTab({ filters }) {
                       {s ? formatDuration(median) : "…"}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      median
+                      {t("analytics.median")}
                     </Typography>
                   </Box>
                   <Box>
                     <Typography variant="h5">{s ? formatDuration(p90) : "…"}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      90th percentile
+                      {t("analytics.90thPercentile")}
                     </Typography>
                   </Box>
                 </Stack>
@@ -467,20 +474,20 @@ function ResponseTab({ filters }) {
         ))}
       </Grid>
       <ChartCard
-        title="Median response per exit"
-        subtitle="Minutes from the blockage being confirmed to acknowledgement and to resolution"
+        title={t("analytics.medianResponsePerExit")}
+        subtitle={t("analytics.minutesFromTheBlockageBeing")}
         loading={loading}
         error={null}
         empty={data ? rows.length === 0 : undefined}
-        emptyText="No incident in this range has been acknowledged yet."
+        emptyText={t("analytics.noIncidentInThisRange")}
         height={Math.max(220, rows.length * 48)}
         chart={
           <Bar
             data={{
               labels: rows.map((r) => r.camera_name),
               datasets: [
-                { label: "To acknowledge", data: rows.map((r) => minutes(r.ack_median_s)), ...ct.bar(ct.series[0]) },
-                { label: "To resolve", data: rows.map((r) => minutes(r.resolve_median_s)), ...ct.bar(ct.series[1]) },
+                { label: t("analytics.toAcknowledge"), data: rows.map((r) => minutes(r.ack_median_s)), ...ct.bar(ct.series[0]) },
+                { label: t("analytics.toResolve"), data: rows.map((r) => minutes(r.resolve_median_s)), ...ct.bar(ct.series[1]) },
               ],
             }}
             options={ct.options({ legend: true, horizontal: true, xTitle: "minutes" })}
@@ -491,13 +498,13 @@ function ResponseTab({ filters }) {
             rows={data?.per_camera || []}
             rowKey={(r) => r.camera_id}
             columns={[
-              { label: "Exit", render: (r) => r.camera_name },
-              { label: "Incidents", align: "right", render: (r) => r.incidents },
-              { label: "Ack median", align: "right", render: (r) => formatDuration(r.ack_median_s) },
-              { label: "Ack p90", align: "right", render: (r) => formatDuration(r.ack_p90_s) },
-              { label: "Resolve median", align: "right", render: (r) => formatDuration(r.resolve_median_s) },
-              { label: "Resolve p90", align: "right", render: (r) => formatDuration(r.resolve_p90_s) },
-              { label: "Open", align: "right", render: (r) => r.open },
+              { label: t("analytics.exit"), render: (r) => r.camera_name },
+              { label: t("analytics.incidents"), align: "right", render: (r) => r.incidents },
+              { label: t("analytics.ackMedian"), align: "right", render: (r) => formatDuration(r.ack_median_s) },
+              { label: t("analytics.ackP90"), align: "right", render: (r) => formatDuration(r.ack_p90_s) },
+              { label: t("analytics.resolveMedian"), align: "right", render: (r) => formatDuration(r.resolve_median_s) },
+              { label: t("analytics.resolveP90"), align: "right", render: (r) => formatDuration(r.resolve_p90_s) },
+              { label: t("analytics.open"), align: "right", render: (r) => r.open },
             ]}
           />
         }
@@ -514,6 +521,7 @@ const durationLabel = (bin) => {
 };
 
 function BreakdownTab({ filters }) {
+  const { t } = useTranslation();
   const ct = useChartTheme();
   const { data, error, loading, refresh } = useFiltered(analytics.breakdown, filters);
   const perCamera = data?.per_camera || [];
@@ -527,15 +535,15 @@ function BreakdownTab({ filters }) {
       <Grid size={12}>
         <ChartCard
           {...common}
-          title="Blocked time per exit"
-          subtitle="Total minutes obstructed; ongoing blockages count up to now"
+          title={t("analytics.blockedTimePerExit")}
+          subtitle={t("analytics.totalMinutesObstructedOngoingBlockag")}
           height={Math.max(220, perCamera.length * 40)}
           chart={
             <Bar
               data={{
                 labels: perCamera.map((r) => r.camera_name),
                 datasets: [
-                  { label: "Minutes blocked", data: perCamera.map((r) => minutes(r.total_blocked_s)), ...ct.bar(ct.series[0]) },
+                  { label: t("analytics.minutesBlocked"), data: perCamera.map((r) => minutes(r.total_blocked_s)), ...ct.bar(ct.series[0]) },
                 ],
               }}
               options={ct.options({ horizontal: true, xTitle: "minutes" })}
@@ -546,13 +554,13 @@ function BreakdownTab({ filters }) {
               rows={perCamera}
               rowKey={(r) => r.camera_id}
               columns={[
-                { label: "Exit", render: (r) => r.camera_name },
-                { label: "Episodes", align: "right", render: (r) => r.episodes },
-                { label: "Total blocked", align: "right", render: (r) => formatDuration(r.total_blocked_s) },
-                { label: "Average", align: "right", render: (r) => formatDuration(r.avg_duration_s) },
-                { label: "Longest", align: "right", render: (r) => formatDuration(r.max_duration_s) },
-                { label: "Worst accessible", align: "right", render: (r) => formatPct(r.worst_accessibility_pct) },
-                { label: "Reached FULL", align: "right", render: (r) => r.fully_blocked },
+                { label: t("analytics.exit"), render: (r) => r.camera_name },
+                { label: t("analytics.episodes"), align: "right", render: (r) => r.episodes },
+                { label: t("analytics.totalBlocked"), align: "right", render: (r) => formatDuration(r.total_blocked_s) },
+                { label: t("analytics.average"), align: "right", render: (r) => formatDuration(r.avg_duration_s) },
+                { label: t("analytics.longest"), align: "right", render: (r) => formatDuration(r.max_duration_s) },
+                { label: t("analytics.worstAccessible"), align: "right", render: (r) => formatPct(r.worst_accessibility_pct) },
+                { label: t("analytics.reachedFull"), align: "right", render: (r) => r.fully_blocked },
               ]}
             />
           }
@@ -561,14 +569,14 @@ function BreakdownTab({ filters }) {
       <Grid size={{ xs: 12, md: 6 }}>
         <ChartCard
           {...common}
-          title="How long blockages last"
-          subtitle="Episodes by duration"
+          title={t("analytics.howLongBlockagesLast")}
+          subtitle={t("analytics.episodesByDuration")}
           height={260}
           chart={
             <Bar
               data={{
                 labels: histogram.map(durationLabel),
-                datasets: [{ label: "Episodes", data: histogram.map((b) => b.count), ...ct.bar(ct.series[0]) }],
+                datasets: [{ label: t("analytics.episodes"), data: histogram.map((b) => b.count), ...ct.bar(ct.series[0]) }],
               }}
               options={{
                 ...ct.options(),
@@ -583,8 +591,8 @@ function BreakdownTab({ filters }) {
             <SimpleTable
               rows={histogram}
               columns={[
-                { label: "Duration", render: durationLabel },
-                { label: "Episodes", align: "right", render: (b) => b.count },
+                { label: t("analytics.duration"), render: durationLabel },
+                { label: t("analytics.episodes"), align: "right", render: (b) => b.count },
               ]}
             />
           }
@@ -594,14 +602,14 @@ function BreakdownTab({ filters }) {
         <ChartCard
           {...common}
           empty={data ? objects.length === 0 : undefined}
-          title="What blocks exits"
-          subtitle="Episodes each kind of object was found in the exit (top 10)"
+          title={t("analytics.whatBlocksExits")}
+          subtitle={t("analytics.episodesEachKindOfObject")}
           height={Math.max(220, objects.length * 32)}
           chart={
             <Bar
               data={{
                 labels: objects.map((o) => o.object),
-                datasets: [{ label: "Episodes", data: objects.map((o) => o.episodes), ...ct.bar(ct.series[0]) }],
+                datasets: [{ label: t("analytics.episodes"), data: objects.map((o) => o.episodes), ...ct.bar(ct.series[0]) }],
               }}
               options={{
                 ...ct.options({ horizontal: true }),
@@ -616,8 +624,8 @@ function BreakdownTab({ filters }) {
             <SimpleTable
               rows={objects}
               columns={[
-                { label: "Object", render: (o) => o.object },
-                { label: "Episodes", align: "right", render: (o) => o.episodes },
+                { label: t("analytics.object"), render: (o) => o.object },
+                { label: t("analytics.episodes"), align: "right", render: (o) => o.episodes },
               ]}
             />
           }
@@ -631,6 +639,7 @@ function BreakdownTab({ filters }) {
 const LOG_ROWS = 8;
 
 function ConfidenceTab({ filters }) {
+  const { t } = useTranslation();
   const ct = useChartTheme();
   const { data, error, loading, refresh } = useFiltered(analytics.confidenceAudit, filters);
   const [page, setPage] = useState(0);
@@ -639,46 +648,46 @@ function ConfidenceTab({ filters }) {
   const histogram = data?.histogram || [];
   const log = data?.per_event || [];
   const empty = data ? s.scored_events === 0 : undefined;
-  const common = { loading, error, onRetry: refresh, empty, emptyText: "No incident in this range has a recorded detection confidence." };
+  const common = { loading, error, onRetry: refresh, empty, emptyText: t("analytics.noIncidentInThisRange2") };
 
   return (
     <Grid container spacing={2}>
       <Grid size={{ xs: 6, md: 3 }}>
-        <StatCard label="Mean confidence" value={pct(s?.avg_confidence)} hint="peak detection per incident" />
+        <StatCard label={t("analytics.meanConfidence")} value={pct(s?.avg_confidence)} hint={t("analytics.peakDetectionPerIncident")} />
       </Grid>
       <Grid size={{ xs: 6, md: 3 }}>
         <StatCard
-          label="Audited incidents"
+          label={t("analytics.auditedIncidents")}
           value={s ? formatNumber(s.scored_events) : "…"}
-          hint={s ? `of ${s.events} in range` : ""}
+          hint={s ? t("analytics.ofEventsInRange", { events: s.events }) : ""}
         />
       </Grid>
       <Grid size={{ xs: 6, md: 3 }}>
         <StatCard
-          label="Low confidence"
+          label={t("analytics.lowConfidence")}
           value={s ? formatNumber(s.low_confidence) : "…"}
-          hint={s ? `below ${pct(s.low_confidence_cutoff)} · ${pct(s.low_confidence_share, 1)} of audited` : ""}
+          hint={s ? t("analytics.belowV0V1OfAudited", { v0: pct(s.low_confidence_cutoff), v1: pct(s.low_confidence_share, 1) }) : ""}
         />
       </Grid>
       <Grid size={{ xs: 6, md: 3 }}>
         <StatCard
-          label="Range"
+          label={t("analytics.range")}
           value={s?.scored_events ? `${pct(s.min_confidence)}–${pct(s.max_confidence)}` : "—"}
-          hint={s ? `detector threshold ${pct(s.threshold)}` : ""}
+          hint={s ? t("analytics.detectorThresholdV0", { v0: pct(s.threshold) }) : ""}
         />
       </Grid>
 
       <Grid size={{ xs: 12, md: 6 }}>
         <ChartCard
           {...common}
-          title="Mean confidence per exit"
+          title={t("analytics.meanConfidencePerExit")}
           height={Math.max(220, perCamera.length * 36)}
           chart={
             <Bar
               data={{
                 labels: perCamera.map((r) => r.camera_name),
                 datasets: [
-                  { label: "Mean confidence", data: perCamera.map((r) => Math.round((r.avg_confidence || 0) * 100)), ...ct.bar(ct.series[0]) },
+                  { label: t("analytics.meanConfidence"), data: perCamera.map((r) => Math.round((r.avg_confidence || 0) * 100)), ...ct.bar(ct.series[0]) },
                 ],
               }}
               options={{
@@ -695,12 +704,12 @@ function ConfidenceTab({ filters }) {
               rows={perCamera}
               rowKey={(r) => r.camera_id}
               columns={[
-                { label: "Exit", render: (r) => r.camera_name },
-                { label: "Audited", align: "right", render: (r) => r.events },
-                { label: "Mean", align: "right", render: (r) => pct(r.avg_confidence) },
-                { label: "Min", align: "right", render: (r) => pct(r.min_confidence) },
-                { label: "Max", align: "right", render: (r) => pct(r.max_confidence) },
-                { label: "Low", align: "right", render: (r) => r.low_confidence },
+                { label: t("analytics.exit"), render: (r) => r.camera_name },
+                { label: t("analytics.audited"), align: "right", render: (r) => r.events },
+                { label: t("analytics.mean"), align: "right", render: (r) => pct(r.avg_confidence) },
+                { label: t("analytics.min"), align: "right", render: (r) => pct(r.min_confidence) },
+                { label: t("analytics.max"), align: "right", render: (r) => pct(r.max_confidence) },
+                { label: t("analytics.low"), align: "right", render: (r) => r.low_confidence },
               ]}
             />
           }
@@ -709,21 +718,21 @@ function ConfidenceTab({ filters }) {
       <Grid size={{ xs: 12, md: 6 }}>
         <ChartCard
           {...common}
-          title="Confidence distribution"
-          subtitle="Incidents by peak detection confidence"
+          title={t("analytics.confidenceDistribution")}
+          subtitle={t("analytics.incidentsByPeakDetectionConfidence")}
           height={260}
           chart={
             <Bar
               data={{
                 labels: histogram.map((b) => `${Math.round(b.min * 100)}–${Math.round(b.max * 100)}`),
-                datasets: [{ label: "Incidents", data: histogram.map((b) => b.count), ...ct.bar(ct.series[0]) }],
+                datasets: [{ label: t("analytics.incidents"), data: histogram.map((b) => b.count), ...ct.bar(ct.series[0]) }],
               }}
               options={{
-                ...ct.options({ xTitle: "peak confidence, %" }),
+                ...ct.options({ xTitle: t("analytics.peakConfidencePct") }),
                 scales: {
-                  ...ct.options({ xTitle: "peak confidence, %" }).scales,
+                  ...ct.options({ xTitle: t("analytics.peakConfidencePct") }).scales,
                   x: {
-                    ...ct.options({ xTitle: "peak confidence, %" }).scales.x,
+                    ...ct.options({ xTitle: t("analytics.peakConfidencePct") }).scales.x,
                     ticks: { color: ct.text, maxRotation: 0, autoSkip: false, font: { size: 10 } },
                   },
                   y: { ...ct.options().scales.y, ticks: { color: ct.text, precision: 0 } },
@@ -735,8 +744,8 @@ function ConfidenceTab({ filters }) {
             <SimpleTable
               rows={histogram}
               columns={[
-                { label: "Confidence", render: (b) => `${Math.round(b.min * 100)}–${Math.round(b.max * 100)}%` },
-                { label: "Incidents", align: "right", render: (b) => b.count },
+                { label: t("analytics.confidence"), render: (b) => `${Math.round(b.min * 100)}–${Math.round(b.max * 100)}%` },
+                { label: t("analytics.incidents"), align: "right", render: (b) => b.count },
               ]}
             />
           }
@@ -745,8 +754,8 @@ function ConfidenceTab({ filters }) {
       <Grid size={12}>
         <ChartCard
           {...common}
-          title="Incident confidence log"
-          subtitle="Latest 200 audited incidents"
+          title={t("analytics.incidentConfidenceLog")}
+          subtitle={t("analytics.latest200AuditedIncidents")}
           table={
             <>
               <SimpleTable
@@ -754,10 +763,10 @@ function ConfidenceTab({ filters }) {
                 rowKey={(e) => e.event_id}
                 columns={[
                   { label: "#", render: (e) => e.event_id },
-                  { label: "Exit", render: (e) => e.camera_name },
-                  { label: "Started", render: (e) => formatDateTime(e.started_at) },
+                  { label: t("analytics.exit"), render: (e) => e.camera_name },
+                  { label: t("analytics.started"), render: (e) => formatDateTime(e.started_at) },
                   {
-                    label: "Peak",
+                    label: t("analytics.peak"),
                     align: "right",
                     render: (e) => (
                       <Box component="span" sx={{ color: s && e.confidence < s.low_confidence_cutoff ? "warning.main" : undefined, fontWeight: 600 }}>
@@ -765,8 +774,8 @@ function ConfidenceTab({ filters }) {
                       </Box>
                     ),
                   },
-                  { label: "Mean", align: "right", render: (e) => pct(e.avg_confidence) },
-                  { label: "Status", render: (e) => <EventStatusChip status={e.status} /> },
+                  { label: t("analytics.mean"), align: "right", render: (e) => pct(e.avg_confidence) },
+                  { label: t("analytics.status"), render: (e) => <EventStatusChip status={e.status} /> },
                 ]}
               />
               <TablePagination
@@ -787,6 +796,7 @@ function ConfidenceTab({ filters }) {
 
 // --- daily report ---------------------------------------------------------------------------
 function DailyTab({ filters }) {
+  const { t } = useTranslation();
   const [reportDate, setReportDate] = useState("");
   const { data: report, error, loading, refresh } = useFiltered(
     (f, opts) => analytics.dailyReport(reportDate || null, opts, f),
@@ -800,16 +810,16 @@ function DailyTab({ filters }) {
         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mb: 2 }}>
           <Box>
             <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-              Daily report{report?.report_date ? ` — ${report.report_date}` : ""}
+              {t("analytics.dailyReportV0", { v0: report?.report_date ? ` — ${report.report_date}` : "" })}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Every exit, including those with no incident. Uses the exit and location filters; the day replaces the date range.
+              {t("analytics.everyExitIncludingThoseWith")}
             </Typography>
           </Box>
           <TextField
             size="small"
             type="date"
-            label="Day"
+            label={t("analytics.day")}
             value={reportDate}
             onChange={(e) => setReportDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
@@ -817,19 +827,19 @@ function DailyTab({ filters }) {
         </Stack>
         <ErrorState error={error} onRetry={refresh} />
         {loading && !report ? (
-          <Loading label="Building the report…" />
+          <Loading label={t("analytics.buildingTheReport")} />
         ) : report?.rows?.length ? (
           <TableContainer>
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Exit</TableCell>
-                  <TableCell align="right">Incidents</TableCell>
-                  <TableCell align="right">Total blocked</TableCell>
-                  <TableCell align="right">Average</TableCell>
-                  <TableCell align="right">Longest</TableCell>
-                  <TableCell align="right">Worst accessible</TableCell>
-                  <TableCell align="right">Alerts</TableCell>
+                  <TableCell>{t("analytics.exit")}</TableCell>
+                  <TableCell align="right">{t("analytics.incidents")}</TableCell>
+                  <TableCell align="right">{t("analytics.totalBlocked")}</TableCell>
+                  <TableCell align="right">{t("analytics.average")}</TableCell>
+                  <TableCell align="right">{t("analytics.longest")}</TableCell>
+                  <TableCell align="right">{t("analytics.worstAccessible")}</TableCell>
+                  <TableCell align="right">{t("analytics.alerts")}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody sx={{ "& td": { fontVariantNumeric: "tabular-nums" } }}>
@@ -852,7 +862,7 @@ function DailyTab({ filters }) {
             </Table>
           </TableContainer>
         ) : (
-          <EmptyState title="No exits match" description="Clear the exit or location filters." />
+          <EmptyState title={t("analytics.noExitsMatch")} description={t("analytics.clearTheExitOrLocation")} />
         )}
       </CardContent>
     </Card>
@@ -861,6 +871,7 @@ function DailyTab({ filters }) {
 
 // --- page -------------------------------------------------------------------------------------
 export default function Analytics() {
+  const { t } = useTranslation();
   // Filters and tab live in the URL: a view worth sharing is a link.
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => pickFilters(searchParams), [searchParams]);
@@ -904,8 +915,8 @@ export default function Analytics() {
   return (
     <Box>
       <PageHeader
-        title="Analytics"
-        subtitle="Which exits get blocked, when, for how long, how fast people respond, and how sure the detector was."
+        title={t("analytics.analytics")}
+        subtitle={t("analytics.whichExitsGetBlockedWhen")}
         actions={
           <ButtonGroup size="small">
             {QUICK_RANGES.map((r) => (
@@ -921,7 +932,7 @@ export default function Analytics() {
               variant={!filters.start_date && !filters.end_date ? "contained" : "outlined"}
               onClick={() => update({ start_date: "", end_date: "" })}
             >
-              All time
+              {t("analytics.allTime")}
             </Button>
           </ButtonGroup>
         }

@@ -11,6 +11,8 @@ import FilterAltOffIcon from "@mui/icons-material/FilterAltOff";
 
 import { cameras as camerasApi } from "../api/endpoints";
 import { useAsync } from "../hooks/useAsync";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 
 /** The query parameters every filtered endpoint understands (services/filters.py). */
 export const FILTER_KEYS = [
@@ -27,11 +29,11 @@ export const FILTER_KEYS = [
 ];
 
 const HIERARCHY = [
-  { key: "location", list: "locations", label: "Location" },
-  { key: "area", list: "areas", label: "Area" },
-  { key: "building", list: "buildings", label: "Building" },
-  { key: "floor_level", list: "floor_levels", label: "Floor" },
-  { key: "zone", list: "zones", label: "Zone" },
+  { key: "location", list: "locations", get label() { return i18n.t("eventFilterBar.location"); } },
+  { key: "area", list: "areas", get label() { return i18n.t("eventFilterBar.area"); } },
+  { key: "building", list: "buildings", get label() { return i18n.t("eventFilterBar.building"); } },
+  { key: "floor_level", list: "floor_levels", get label() { return i18n.t("eventFilterBar.floor"); } },
+  { key: "zone", list: "zones", get label() { return i18n.t("eventFilterBar.zone"); } },
 ];
 
 const split = (value) => (value ? String(value).split(",").filter(Boolean) : []);
@@ -86,6 +88,7 @@ function MultiSelect({ label, options, value, onChange, renderOption = (o) => o.
  * page can keep it in the URL and hand it straight to the API.
  */
 export default function EventFilterBar({ value, onChange }) {
+  const { t } = useTranslation();
   const set = (key) => (next) => {
     const updated = { ...value, [key]: next };
     // Narrowing a level can orphan the choices below it; drop those.
@@ -136,21 +139,21 @@ export default function EventFilterBar({ value, onChange }) {
 
   return (
     <Grid container spacing={1.5} alignItems="center">
-      <Grid size={{ xs: 6, sm: 3, lg: 2 }}>{dateField("start_date", "From", "date")}</Grid>
-      <Grid size={{ xs: 6, sm: 3, lg: 2 }}>{dateField("end_date", "To", "date")}</Grid>
+      <Grid size={{ xs: 6, sm: 3, lg: 2 }}>{dateField("start_date", t("eventFilterBar.from"), "date")}</Grid>
+      <Grid size={{ xs: 6, sm: 3, lg: 2 }}>{dateField("end_date", t("eventFilterBar.to"), "date")}</Grid>
       <Grid size={{ xs: 6, sm: 3, lg: 2 }}>
-        <Tooltip title="Without a From date: every day from this time">
-          <Box>{dateField("start_time", "From time", "time")}</Box>
+        <Tooltip title={t("eventFilterBar.withoutAFromDateEvery")}>
+          <Box>{dateField("start_time", t("eventFilterBar.fromTime"), "time")}</Box>
         </Tooltip>
       </Grid>
       <Grid size={{ xs: 6, sm: 3, lg: 2 }}>
-        <Tooltip title="Without a To date: every day until this time (may wrap midnight)">
-          <Box>{dateField("end_time", "To time", "time")}</Box>
+        <Tooltip title={t("eventFilterBar.withoutAToDateEvery")}>
+          <Box>{dateField("end_time", t("eventFilterBar.toTime"), "time")}</Box>
         </Tooltip>
       </Grid>
       <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
         <MultiSelect
-          label="Exits"
+          label={t("eventFilterBar.exits")}
           options={cameraOptions}
           value={value.camera_id}
           onChange={set("camera_id")}
@@ -174,7 +177,7 @@ export default function EventFilterBar({ value, onChange }) {
           disabled={!hasFilters(value)}
           onClick={() => onChange({})}
         >
-          Clear
+          {t("eventFilterBar.clear")}
         </Button>
       </Grid>
     </Grid>

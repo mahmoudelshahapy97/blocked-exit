@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import { useTranslation } from "react-i18next";
 
 const HANDLE_RADIUS = 6;
 const GRAB_RADIUS = 12;
@@ -23,6 +24,7 @@ export function PolygonEditor({
   onChange,
   disabled = false,
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
@@ -239,9 +241,7 @@ export function PolygonEditor({
         }}
       />
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-        Click to add a point · drag a point to move it · right-click a point to delete it.
-        At least 3 points are needed.
-        {nativeWidth > 0 ? ` Frame is ${nativeWidth}x${nativeHeight}px.` : ""}
+        {t("polygonEditor.clickToAddAPoint", { v0: nativeWidth > 0 ? t("polygonEditor.frameSize", { width: nativeWidth, height: nativeHeight }) : "" })}
       </Typography>
     </Box>
   );

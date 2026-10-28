@@ -14,9 +14,10 @@ import { auth as authApi } from "../../api/endpoints";
 import { useAsync } from "../../hooks/useAsync";
 import { useAuth } from "../../context/AuthContext";
 import { Loading } from "../../components/DataStates";
-import { PASSWORD_HELP } from "../../utils/constants";
+import { useTranslation } from "react-i18next";
 
 export default function Signup() {
+  const { t } = useTranslation();
   const { signup, error: authError } = useAuth();
   const navigate = useNavigate();
 
@@ -35,7 +36,7 @@ export default function Signup() {
     if (ok) navigate("/", { replace: true });
   };
 
-  if (!bootstrap && !bootstrapError) return <Loading label="Loading…" height="60vh" />;
+  if (!bootstrap && !bootstrapError) return <Loading label={t("signup.loading")} height="60vh" />;
   // Closed signup: there is nothing to fill in here, accounts come from a superadmin.
   if (bootstrap && !bootstrap.signup_open) return <Navigate to="/login" replace />;
   const isBootstrap = Boolean(bootstrap?.needs_bootstrap);
@@ -55,13 +56,12 @@ export default function Signup() {
         <CardContent sx={{ p: 4 }}>
           <Stack spacing={0.5} sx={{ mb: 3 }}>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>
-              {isBootstrap ? "Set up InsightEye" : "Create an account"}
+              {isBootstrap ? t("signup.setUpInsighteye") : t("signup.createAnAccount")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {isBootstrap
-                ? "This first account becomes the superadmin: it creates workspaces " +
-                  "and every other account."
-                : "You will join the shared workspace as a member."}
+                ? t("signup.firstAccountIsSuperadmin")
+                : t("signup.youWillJoinTheShared")}
             </Typography>
           </Stack>
 
@@ -70,17 +70,17 @@ export default function Signup() {
               {authError && <Alert severity="error">{authError}</Alert>}
 
               <TextField
-                label="Username"
+                label={t("signup.username")}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
                 autoFocus
                 fullWidth
                 required
-                helperText="Letters, digits, dot, underscore, hyphen"
+                helperText={t("signup.lettersDigitsDotUnderscoreHyphen")}
               />
               <TextField
-                label="Email"
+                label={t("signup.email")}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -89,22 +89,22 @@ export default function Signup() {
                 required
               />
               <TextField
-                label="Password"
+                label={t("signup.password")}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 fullWidth
                 required
-                helperText={PASSWORD_HELP}
+                helperText={t("common:password.hintThreeOfFour")}
               />
               {isBootstrap && (
                 <TextField
-                  label="First workspace name"
+                  label={t("signup.firstWorkspaceName")}
                   value={workspaceName}
                   onChange={(e) => setWorkspaceName(e.target.value)}
                   fullWidth
-                  helperText='Optional — defaults to "Default Workspace"'
+                  helperText={t("signup.optionalDefaultsToDefaultWorkspace")}
                 />
               )}
               <Button
@@ -114,12 +114,12 @@ export default function Signup() {
                 disabled={submitting}
                 fullWidth
               >
-                {submitting ? "Creating account…" : "Create account"}
+                {submitting ? t("signup.creatingAccount") : t("signup.createAccount")}
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
-                Already have an account?{" "}
+                {t("signup.alreadyHaveAnAccount")}{" "}
                 <Link component={RouterLink} to="/login">
-                  Sign in
+                  {t("signup.signIn")}
                 </Link>
               </Typography>
             </Stack>

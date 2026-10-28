@@ -5,6 +5,7 @@ import {
   getStoredRefreshToken,
   setSession,
 } from "./tokenStore";
+import i18n from "i18next";
 
 /**
  * Relative baseURL on purpose: the Vite proxy (dev) or whatever serves the
@@ -120,11 +121,11 @@ export function errorMessage(error) {
         .join("; ");
     }
   }
-  if (error?.code === "ECONNABORTED") return "The backend did not respond in time.";
+  if (error?.code === "ECONNABORTED") return i18n.t("common:errors.timeout");
   if (error?.message === "Network Error") {
-    return "Cannot reach the backend. Is uvicorn running on the port VITE_API_TARGET points at?";
+    return i18n.t("common:errors.network");
   }
-  return error?.message || "Something went wrong.";
+  return error?.message || i18n.t("common:errors.generic");
 }
 
 export function mediaUrl(path, params = {}) {

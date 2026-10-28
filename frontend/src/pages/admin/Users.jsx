@@ -34,16 +34,18 @@ import { useToast } from "../../components/Toast";
 import { ErrorState, Loading } from "../../components/DataStates";
 import PageHeader from "../../components/PageHeader";
 import { formatDateTime } from "../../utils/format";
-import { PASSWORD_HELP } from "../../utils/constants";
+import { useTranslation } from "react-i18next";
+import i18n from "i18next";
 
 const PLATFORM_ROLES = [
-  { value: "user", label: "user", hint: "Gets the role of each workspace membership" },
-  { value: "admin", label: "admin", hint: "Workspace admin wherever they are a member" },
-  { value: "superadmin", label: "superadmin", hint: "Manages users and every workspace" },
+  { value: "user", get label() { return i18n.t("users.user"); }, get hint() { return i18n.t("users.getsTheRoleOfEach"); } },
+  { value: "admin", get label() { return i18n.t("users.admin"); }, get hint() { return i18n.t("users.workspaceAdminWhereverTheyAre"); } },
+  { value: "superadmin", get label() { return i18n.t("users.superadmin"); }, get hint() { return i18n.t("users.managesUsersAndEveryWorkspace"); } },
 ];
 const WORKSPACE_ROLES = ["viewer", "member", "admin"];
 
 function CreateUserDialog({ onClose, onDone }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const { data: allWorkspaces } = useAsync((opts) =>
     workspacesApi.list({ include_inactive: false }, opts)
@@ -71,7 +73,7 @@ function CreateUserDialog({ onClose, onDone }) {
         full_name: form.full_name || undefined,
         workspace_id: form.workspace_id === "" ? undefined : Number(form.workspace_id),
       });
-      toast.success(`Created ${form.username}`);
+      toast.success(t("users.createdUsername", { username: form.username }));
       onDone();
     } catch (err) {
       setError(errorMessage(err));
@@ -83,28 +85,28 @@ function CreateUserDialog({ onClose, onDone }) {
   return (
     <Dialog open onClose={onClose} maxWidth="sm" fullWidth>
       <Box component="form" onSubmit={submit}>
-        <DialogTitle>Create user</DialogTitle>
+        <DialogTitle>{t("users.createUser")}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {error && <Alert severity="error">{error}</Alert>}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField label="Username" value={form.username} onChange={set("username")} required fullWidth autoFocus />
-              <TextField label="Full name" value={form.full_name} onChange={set("full_name")} fullWidth />
+              <TextField label={t("users.username")} value={form.username} onChange={set("username")} required fullWidth autoFocus />
+              <TextField label={t("users.fullName")} value={form.full_name} onChange={set("full_name")} fullWidth />
             </Stack>
-            <TextField label="Email" type="email" value={form.email} onChange={set("email")} required fullWidth />
+            <TextField label={t("users.email")} type="email" value={form.email} onChange={set("email")} required fullWidth />
             <TextField
-              label="Password"
+              label={t("users.password")}
               type="password"
               value={form.password}
               onChange={set("password")}
               autoComplete="new-password"
-              helperText={PASSWORD_HELP}
+              helperText={t("common:password.hintThreeOfFour")}
               required
               fullWidth
             />
             <TextField
               select
-              label="Platform role"
+              label={t("users.platformRole")}
               value={form.role}
               onChange={set("role")}
               helperText={PLATFORM_ROLES.find((r) => r.value === form.role)?.hint}
@@ -119,13 +121,13 @@ function CreateUserDialog({ onClose, onDone }) {
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField
                 select
-                label="Workspace"
+                label={t("users.workspace")}
                 value={form.workspace_id}
                 onChange={set("workspace_id")}
-                helperText="Optional — add them later from Manage workspaces"
+                helperText={t("users.optionalAddThemLaterFrom")}
                 fullWidth
               >
-                <MenuItem value="">None</MenuItem>
+                <MenuItem value="">{t("users.none")}</MenuItem>
                 {(allWorkspaces || []).map((w) => (
                   <MenuItem key={w.id} value={w.id}>
                     {w.name}
@@ -134,7 +136,7 @@ function CreateUserDialog({ onClose, onDone }) {
               </TextField>
               <TextField
                 select
-                label="Workspace role"
+                label={t("users.workspaceRole")}
                 value={form.workspace_role}
                 onChange={set("workspace_role")}
                 disabled={form.workspace_id === ""}
@@ -150,9 +152,9 @@ function CreateUserDialog({ onClose, onDone }) {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("users.cancel")}</Button>
           <Button type="submit" variant="contained" disabled={busy}>
-            {busy ? "Creating…" : "Create"}
+            {busy ? t("users.creating") : t("users.create")}
           </Button>
         </DialogActions>
       </Box>
@@ -161,6 +163,7 @@ function CreateUserDialog({ onClose, onDone }) {
 }
 
 function ResetPasswordDialog({ target, onClose }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -172,7 +175,7 @@ function ResetPasswordDialog({ target, onClose }) {
     setError(null);
     try {
       await authApi.updateUser(target.id, { password });
-      toast.success(`Password reset for ${target.username}; they were signed out everywhere`);
+      toast.success(t("users.passwordResetForUsernameThey", { username: target.username }));
       onClose();
     } catch (err) {
       setError(errorMessage(err));
@@ -184,17 +187,17 @@ function ResetPasswordDialog({ target, onClose }) {
   return (
     <Dialog open onClose={onClose} maxWidth="xs" fullWidth>
       <Box component="form" onSubmit={submit}>
-        <DialogTitle>Reset password — {target.username}</DialogTitle>
+        <DialogTitle>{t("users.resetPasswordUsername", { username: target.username })}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {error && <Alert severity="error">{error}</Alert>}
             <TextField
-              label="New password"
+              label={t("users.newPassword")}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="new-password"
-              helperText={PASSWORD_HELP}
+              helperText={t("common:password.hintThreeOfFour")}
               autoFocus
               required
               fullWidth
@@ -202,9 +205,9 @@ function ResetPasswordDialog({ target, onClose }) {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t("users.cancel")}</Button>
           <Button type="submit" variant="contained" disabled={busy || !password}>
-            Reset
+            {t("users.reset")}
           </Button>
         </DialogActions>
       </Box>
@@ -217,6 +220,7 @@ function ResetPasswordDialog({ target, onClose }) {
  * creates accounts; there is no public signup once the first one exists.
  */
 export default function AdminUsers() {
+  const { t } = useTranslation();
   const { user: currentUser } = useAuth();
   const toast = useToast();
   const { data: users, error, loading, refresh } = useAsync((opts) => authApi.listUsers(opts));
@@ -226,7 +230,7 @@ export default function AdminUsers() {
   const updateUser = async (target, changes) => {
     try {
       await authApi.updateUser(target.id, changes);
-      toast.success(`Updated ${target.username}`);
+      toast.success(t("users.updatedUsername", { username: target.username }));
       refresh();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -236,11 +240,11 @@ export default function AdminUsers() {
   return (
     <Box>
       <PageHeader
-        title="Users"
-        subtitle="Every account on this deployment"
+        title={t("users.users")}
+        subtitle={t("users.everyAccountOnThisDeployment")}
         actions={
           <Button variant="contained" startIcon={<PersonAddIcon />} onClick={() => setCreateOpen(true)}>
-            Create user
+            {t("users.createUser")}
           </Button>
         }
       />
@@ -248,7 +252,7 @@ export default function AdminUsers() {
       {error && <ErrorState error={error} onRetry={refresh} />}
 
       {loading && !users ? (
-        <Loading label="Loading users…" />
+        <Loading label={t("users.loadingUsers")} />
       ) : (
         <Card>
           <CardContent sx={{ p: 0 }}>
@@ -256,12 +260,12 @@ export default function AdminUsers() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Username</TableCell>
-                    <TableCell>Email</TableCell>
-                    <TableCell>Platform role</TableCell>
-                    <TableCell>Active</TableCell>
-                    <TableCell>Last login</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                    <TableCell>{t("users.username")}</TableCell>
+                    <TableCell>{t("users.email")}</TableCell>
+                    <TableCell>{t("users.platformRole")}</TableCell>
+                    <TableCell>{t("users.active")}</TableCell>
+                    <TableCell>{t("users.lastLogin")}</TableCell>
+                    <TableCell align="right">{t("users.actions")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -279,7 +283,7 @@ export default function AdminUsers() {
                         </TableCell>
                         <TableCell>{u.email}</TableCell>
                         <TableCell>
-                          <Tooltip title={isSelf ? "You cannot change your own role" : ""}>
+                          <Tooltip title={isSelf ? t("users.youCannotChangeYourOwn") : ""}>
                             <span>
                               <Select
                                 size="small"
@@ -297,7 +301,7 @@ export default function AdminUsers() {
                           </Tooltip>
                         </TableCell>
                         <TableCell>
-                          <Tooltip title={isSelf ? "You cannot deactivate your own account" : ""}>
+                          <Tooltip title={isSelf ? t("users.youCannotDeactivateYourOwn") : ""}>
                             <span>
                               <Switch
                                 size="small"
@@ -307,13 +311,13 @@ export default function AdminUsers() {
                               />
                             </span>
                           </Tooltip>
-                          {!u.is_active && <Chip size="small" color="default" label="inactive" sx={{ ml: 1 }} />}
+                          {!u.is_active && <Chip size="small" color="default" label={t("users.inactive")} sx={{ ml: 1 }} />}
                         </TableCell>
                         <TableCell>
-                          {u.last_login_at ? formatDateTime(u.last_login_at) : "Never"}
+                          {u.last_login_at ? formatDateTime(u.last_login_at) : t("users.never")}
                         </TableCell>
                         <TableCell align="right">
-                          <Tooltip title="Reset password">
+                          <Tooltip title={t("users.resetPassword")}>
                             <IconButton size="small" onClick={() => setResetTarget(u)}>
                               <KeyIcon fontSize="small" />
                             </IconButton>

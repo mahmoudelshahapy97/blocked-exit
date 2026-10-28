@@ -42,7 +42,9 @@ import EventFilterBar, { FILTER_KEYS, hasFilters, pickFilters } from "../compone
 import PageHeader from "../components/PageHeader";
 import { EventStatusChip, RiskChip, StateChip } from "../components/StatusChips";
 import { BLOCKAGE_STATE, EVENT_STATUS, RISK_LEVEL } from "../utils/constants";
-import { formatDateTime, formatDuration, formatPct, summarizeObjects } from "../utils/format";
+import { formatDateTime, formatDuration, formatPct, summarizeObjects, titleCase } from "../utils/format";
+import { useTranslation } from "react-i18next";
+import { ExportButton } from "@insighteye/ui";
 
 const ROWS_PER_PAGE = [10, 25, 50, 100];
 
@@ -50,6 +52,7 @@ const CONFIRM_WORD = "DELETE";
 
 /** Admin-only: delete the events matching the filters, or every event. */
 function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,8 +63,8 @@ function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
     try {
       const result = all ? await eventsApi.removeAll() : await eventsApi.remove(filters);
       toast.success(
-        `Deleted ${result.deleted} event${result.deleted === 1 ? "" : "s"}` +
-          (result.skipped_open ? `; kept ${result.skipped_open} still ongoing` : "")
+        t("events.deletedCount", { count: result.deleted }) +
+          (result.skipped_open ? t("events.keptOngoing", { kept: result.skipped_open }) : "")
       );
       onDone();
     } catch (err) {
@@ -73,19 +76,18 @@ function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
 
   return (
     <Dialog open onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>{all ? "Delete all events" : "Delete matching events"}</DialogTitle>
+      <DialogTitle>{all ? t("events.deleteAllEvents") : t("events.deleteMatchingEvents")}</DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
           <Typography variant="body2">
-            {all
-              ? "Every closed event in this workspace will be removed, with its alerts and snapshot."
-              : `The ${total ?? ""} event${total === 1 ? "" : "s"} matching the current date, time, exit and location filters will be removed, with their alerts and snapshots.`}{" "}
-            Ongoing blockages are kept. This cannot be undone.
+            {t("events.v0OngoingBlockagesAreKept", { v0: all
+              ? t("events.deleteAllBody")
+              : t("events.deleteMatchingBody", { count: total ?? 0 }) })}
           </Typography>
           {all && (
             <TextField
               size="small"
-              label={`Type ${CONFIRM_WORD} to confirm`}
+              label={t("events.typeConfirmWordToConfirm", { CONFIRM_WORD })}
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               autoFocus
@@ -95,7 +97,7 @@ function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy} color="inherit">
-          Cancel
+          {t("events.cancel")}
         </Button>
         <Button
           color="error"
@@ -103,7 +105,7 @@ function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
           onClick={submit}
           disabled={busy || (all && typed !== CONFIRM_WORD)}
         >
-          Delete
+          {t("events.delete")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -112,6 +114,7 @@ function DeleteDataDialog({ mode, filters, total, onClose, onDone }) {
 
 /** Acknowledge or resolve one event, with an optional note. */
 function ActionDialog({ action, event, onClose, onDone }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -123,7 +126,7 @@ function ActionDialog({ action, event, onClose, onDone }) {
       const updated = resolving
         ? await eventsApi.resolve(event.id, note)
         : await eventsApi.acknowledge(event.id, note);
-      toast.success(`Event #${event.id} ${updated.status}`);
+      toast.success(t("events.eventIdStatus", { id: event.id, status: updated.status }));
       onDone(updated);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -135,17 +138,17 @@ function ActionDialog({ action, event, onClose, onDone }) {
   return (
     <Dialog open onClose={busy ? undefined : onClose} maxWidth="xs" fullWidth>
       <DialogTitle>
-        {resolving ? "Resolve" : "Acknowledge"} event #{event.id}
+        {t("events.v0EventId", { v0: resolving ? "Resolve" : "Acknowledge", id: event.id })}
       </DialogTitle>
       <DialogContent>
         <Stack spacing={2}>
           <Typography variant="body2" color="text.secondary">
             {event.camera_name} · {formatDateTime(event.started_at)}
-            {!event.ended_at && " · the exit is still blocked"}
+            {!event.ended_at && t("events.theExitIsStillBlocked")}
           </Typography>
           <TextField
-            label={resolving ? "Resolution note" : "Note"}
-            placeholder={resolving ? "What was blocking it, and what was done" : "Optional"}
+            label={resolving ? t("events.resolutionNote") : t("events.note")}
+            placeholder={resolving ? t("events.whatWasBlockingItAnd") : t("events.optional")}
             value={note}
             onChange={(e) => setNote(e.target.value)}
             multiline
@@ -157,7 +160,7 @@ function ActionDialog({ action, event, onClose, onDone }) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={busy} color="inherit">
-          Cancel
+          {t("events.cancel")}
         </Button>
         <Button
           variant="contained"
@@ -165,7 +168,7 @@ function ActionDialog({ action, event, onClose, onDone }) {
           onClick={submit}
           disabled={busy}
         >
-          {resolving ? "Resolve" : "Acknowledge"}
+          {resolving ? t("events.resolve") : t("events.acknowledge")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -185,6 +188,7 @@ function Fact({ label, children }) {
 
 /** One event: its snapshot, what blocked the exit, and who handled it. */
 function EventDrawer({ event, onClose, onAction, canResolve }) {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState(null);
   const [snapshotError, setSnapshotError] = useState(null);
 
@@ -220,10 +224,10 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
         <Box sx={{ width: { xs: "100vw", sm: 460 }, p: 2.5 }}>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Event #{event.id}
+              {t("events.eventId", { id: event.id })}
             </Typography>
             <EventStatusChip status={event.status} />
-            <IconButton onClick={onClose} aria-label="Close">
+            <IconButton onClick={onClose} aria-label={t("events.close")}>
               <CloseIcon />
             </IconButton>
           </Stack>
@@ -233,7 +237,7 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
               <Box
                 component="img"
                 src={snapshot}
-                alt={`Snapshot of event ${event.id}`}
+                alt={t("events.snapshotOfEventId", { id: event.id })}
                 sx={{ width: "100%", borderRadius: 1, mb: 2, display: "block" }}
               />
             ) : snapshotError ? (
@@ -241,10 +245,10 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
                 {snapshotError}
               </Typography>
             ) : (
-              <Loading label="Loading snapshot…" height={180} />
+              <Loading label={t("events.loadingSnapshot")} height={180} />
             ))}
 
-          <Fact label="Exit">
+          <Fact label={t("events.exit")}>
             <Button
               size="small"
               component={RouterLink}
@@ -254,23 +258,23 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
               {event.camera_name}
             </Button>
           </Fact>
-          <Fact label="Blocked">
+          <Fact label={t("events.blocked")}>
             {formatDateTime(event.started_at)} →{" "}
-            {event.ended_at ? formatDateTime(event.ended_at) : <Chip size="small" color="warning" label="ongoing" />}
+            {event.ended_at ? formatDateTime(event.ended_at) : <Chip size="small" color="warning" label={t("events.ongoing")} />}
           </Fact>
-          <Fact label="Duration">{formatDuration(event.duration_s)}</Fact>
-          <Fact label="Worst state">
-            <StateChip state={event.peak_state} /> · {formatPct(event.min_accessibility_pct)} accessible at worst
+          <Fact label={t("events.duration")}>{formatDuration(event.duration_s)}</Fact>
+          <Fact label={t("events.worstState")}>
+            <StateChip state={event.peak_state} /> · {formatPct(event.min_accessibility_pct)}{" "}{t("events.accessibleAtWorst")}
           </Fact>
-          <Fact label="Risk">
+          <Fact label={t("events.risk")}>
             <RiskChip level={event.risk_level} score={event.peak_risk_score} />
           </Fact>
-          <Fact label="Detection confidence">
+          <Fact label={t("events.detectionConfidence")}>
             {event.confidence == null
               ? "—"
-              : `peak ${formatPct(event.confidence * 100)} · mean ${formatPct(event.avg_confidence * 100)}`}
+              : t("events.peakV0MeanV1", { v0: formatPct(event.confidence * 100), v1: formatPct(event.avg_confidence * 100) })}
           </Fact>
-          <Fact label="Blocked by">
+          <Fact label={t("events.blockedBy")}>
             {event.blocking_objects?.length
               ? event.blocking_objects
                   .map((o) => `${o.label} (${formatPct(o.area_pct)})`)
@@ -279,23 +283,23 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
           </Fact>
 
           <Divider sx={{ my: 1.5 }} />
-          <Fact label="Acknowledged">
+          <Fact label={t("events.acknowledged")}>
             {event.acknowledged_at
-              ? `${formatDateTime(event.acknowledged_at)} by ${event.acknowledged_by || "—"}`
-              : "Not yet"}
+              ? t("events.v0ByV1", { v0: formatDateTime(event.acknowledged_at), v1: event.acknowledged_by || "—" })
+              : t("events.notYet")}
           </Fact>
-          <Fact label="Resolved">
+          <Fact label={t("events.resolved")}>
             {event.resolved_at
-              ? `${formatDateTime(event.resolved_at)} by ${event.resolved_by || "—"}`
-              : "Not yet"}
+              ? t("events.v0ByV1", { v0: formatDateTime(event.resolved_at), v1: event.resolved_by || "—" })
+              : t("events.notYet")}
           </Fact>
-          {event.resolution_note && <Fact label="Note">{event.resolution_note}</Fact>}
+          {event.resolution_note && <Fact label={t("events.note")}>{event.resolution_note}</Fact>}
 
           {canResolve && event.status !== EVENT_STATUS.RESOLVED && (
             <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
               {event.status === EVENT_STATUS.DETECTED && (
                 <Button variant="outlined" startIcon={<DoneIcon />} onClick={() => onAction("acknowledge", event)}>
-                  Acknowledge
+                  {t("events.acknowledge")}
                 </Button>
               )}
               <Button
@@ -304,7 +308,7 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
                 startIcon={<DoneAllIcon />}
                 onClick={() => onAction("resolve", event)}
               >
-                Resolve
+                {t("events.resolve")}
               </Button>
             </Stack>
           )}
@@ -315,6 +319,7 @@ function EventDrawer({ event, onClose, onAction, canResolve }) {
 }
 
 export default function Events() {
+  const { t } = useTranslation();
   // Filters live in the URL so a view worth sharing is a link, and the "View
   // all" button on a camera page can arrive here pre-filtered.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -407,8 +412,8 @@ export default function Events() {
   return (
     <Box>
       <PageHeader
-        title="Blockage events"
-        subtitle="One row per confirmed obstruction episode. Acknowledge what you are handling, resolve it when the exit is safe."
+        title={t("events.blockageEvents")}
+        subtitle={t("events.oneRowPerConfirmedObstruction")}
         actions={
           <>
             <FormControlLabel
@@ -419,18 +424,26 @@ export default function Events() {
                   onChange={(event) => setAutoRefresh(event.target.checked)}
                 />
               }
-              label={<Typography variant="body2">Auto</Typography>}
+              label={<Typography variant="body2">{t("events.auto")}</Typography>}
             />
             <Button startIcon={<RefreshIcon />} onClick={refresh} color="inherit">
-              Refresh
+              {t("events.refresh")}
             </Button>
+            <ExportButton
+              fetchBlob={() => {
+                // The list's filters, without its paging and sort.
+                const { limit: _limit, offset: _offset, sort: _sort, ...rest } = params;
+                return eventsApi.exportBlob(rest);
+              }}
+              filenameStem="blockage-events"
+            />
             {canManage && (
               <Button
                 color="error"
                 startIcon={<DeleteSweepIcon />}
                 onClick={(event) => setDeleteMenu(event.currentTarget)}
               >
-                Delete data
+                {t("events.deleteData")}
               </Button>
             )}
           </>
@@ -439,7 +452,7 @@ export default function Events() {
 
       <Menu anchorEl={deleteMenu} open={Boolean(deleteMenu)} onClose={() => setDeleteMenu(null)}>
         <Tooltip
-          title={hasFilters(filters) ? "" : "Set a date, time, exit or location filter first"}
+          title={hasFilters(filters) ? "" : t("events.setADateTimeExit")}
           placement="left"
         >
           <span>
@@ -450,7 +463,7 @@ export default function Events() {
                 setDeleteMenu(null);
               }}
             >
-              Delete events matching the filters
+              {t("events.deleteEventsMatchingTheFilters")}
             </MenuItem>
           </span>
         </Tooltip>
@@ -462,7 +475,7 @@ export default function Events() {
             setDeleteMenu(null);
           }}
         >
-          Delete all events…
+          {t("events.deleteAllEvents2")}
         </MenuItem>
       </Menu>
       {deleteMode && (
@@ -488,26 +501,26 @@ export default function Events() {
           flexWrap="wrap"
           useFlexGap
         >
-          {select("Status", status, "status", [
-            ["", "Any status"],
-            [`${EVENT_STATUS.DETECTED},${EVENT_STATUS.ACKNOWLEDGED}`, "Unresolved"],
-            [EVENT_STATUS.DETECTED, "Detected"],
-            [EVENT_STATUS.ACKNOWLEDGED, "Acknowledged"],
-            [EVENT_STATUS.RESOLVED, "Resolved"],
+          {select(t("events.status"), status, "status", [
+            ["", t("events.anyStatus")],
+            [`${EVENT_STATUS.DETECTED},${EVENT_STATUS.ACKNOWLEDGED}`, t("events.unresolved")],
+            [EVENT_STATUS.DETECTED, titleCase(EVENT_STATUS.DETECTED)],
+            [EVENT_STATUS.ACKNOWLEDGED, titleCase(EVENT_STATUS.ACKNOWLEDGED)],
+            [EVENT_STATUS.RESOLVED, titleCase(EVENT_STATUS.RESOLVED)],
           ])}
-          {select("Risk", riskLevel, "risk_level", [
-            ["", "Any risk"],
-            [`${RISK_LEVEL.HIGH},${RISK_LEVEL.CRITICAL}`, "High or critical"],
-            ...Object.values(RISK_LEVEL).map((v) => [v, v]),
+          {select(t("events.risk"), riskLevel, "risk_level", [
+            ["", t("events.anyRisk")],
+            [`${RISK_LEVEL.HIGH},${RISK_LEVEL.CRITICAL}`, t("events.highOrCritical")],
+            ...Object.values(RISK_LEVEL).map((v) => [v, titleCase(v)]),
           ])}
-          {select("Worst state", state, "state", [
-            ["", "Any"],
-            [BLOCKAGE_STATE.PARTIAL, BLOCKAGE_STATE.PARTIAL],
-            [BLOCKAGE_STATE.FULL, BLOCKAGE_STATE.FULL],
+          {select(t("events.worstState"), state, "state", [
+            ["", t("events.any")],
+            [BLOCKAGE_STATE.PARTIAL, titleCase(BLOCKAGE_STATE.PARTIAL)],
+            [BLOCKAGE_STATE.FULL, titleCase(BLOCKAGE_STATE.FULL)],
           ], 140)}
-          {select("Sort", sort, "sort", [
-            ["time", "Newest first"],
-            ["risk", "Highest risk first"],
+          {select(t("events.sort"), sort, "sort", [
+            ["time", t("events.newestFirst")],
+            ["risk", t("events.highestRiskFirst")],
           ], 170)}
           <FormControlLabel
             control={
@@ -516,25 +529,25 @@ export default function Events() {
                 onChange={(event) => setParam({ open_only: event.target.checked })}
               />
             }
-            label="Still blocked only"
+            label={t("events.stillBlockedOnly")}
           />
 
           <Box sx={{ flexGrow: 1 }} />
           <Typography variant="body2" color="text.secondary">
-            {data ? `${data.total} event${data.total === 1 ? "" : "s"}` : ""}
+            {data ? t("events.totalEvents", { count: data.total }) : ""}
           </Typography>
         </Stack>
       </Card>
 
-      <ErrorState error={error} onRetry={refresh} title="Could not load events" />
+      <ErrorState error={error} onRetry={refresh} title={t("events.couldNotLoadEvents")} />
 
       <Card>
         {loading && !data ? (
-          <Loading label="Loading events…" />
+          <Loading label={t("events.loadingEvents")} />
         ) : items.length === 0 ? (
           <EmptyState
-            title="No events match these filters"
-            description="A blockage is only recorded once it has persisted past the confirm window, so short-lived obstructions never become events."
+            title={t("events.noEventsMatchTheseFilters")}
+            description={t("events.aBlockageIsOnlyRecorded")}
           />
         ) : (
           <>
@@ -543,15 +556,15 @@ export default function Events() {
                 <TableHead>
                   <TableRow>
                     <TableCell>#</TableCell>
-                    <TableCell>Exit</TableCell>
-                    <TableCell>Started</TableCell>
-                    <TableCell>Duration</TableCell>
-                    <TableCell>Worst</TableCell>
-                    <TableCell>Risk</TableCell>
-                    <TableCell align="right">Confidence</TableCell>
-                    <TableCell>Blocked by</TableCell>
-                    <TableCell>Status</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                    <TableCell>{t("events.exit")}</TableCell>
+                    <TableCell>{t("events.started")}</TableCell>
+                    <TableCell>{t("events.duration")}</TableCell>
+                    <TableCell>{t("events.worst")}</TableCell>
+                    <TableCell>{t("events.risk")}</TableCell>
+                    <TableCell align="right">{t("events.confidence")}</TableCell>
+                    <TableCell>{t("events.blockedBy")}</TableCell>
+                    <TableCell>{t("events.status")}</TableCell>
+                    <TableCell align="right">{t("events.actions")}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -563,13 +576,13 @@ export default function Events() {
                       onClick={() => setSelected(event)}
                     >
                       <TableCell>{event.id}</TableCell>
-                      <TableCell>{event.camera_name || `Camera ${event.camera_id}`}</TableCell>
+                      <TableCell>{event.camera_name || t("events.cameraCameraId", { camera_id: event.camera_id })}</TableCell>
                       <TableCell>{formatDateTime(event.started_at)}</TableCell>
                       <TableCell>
                         {event.ended_at ? (
                           formatDuration(event.duration_s)
                         ) : (
-                          <Chip size="small" color="warning" label="ongoing" />
+                          <Chip size="small" color="warning" label={t("events.ongoing")} />
                         )}
                       </TableCell>
                       <TableCell>
@@ -599,7 +612,7 @@ export default function Events() {
                         {canResolve && event.status !== EVENT_STATUS.RESOLVED && (
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                             {event.status === EVENT_STATUS.DETECTED && (
-                              <Tooltip title="Acknowledge">
+                              <Tooltip title={t("events.acknowledge")}>
                                 <IconButton
                                   size="small"
                                   onClick={() => setPendingAction({ action: "acknowledge", event })}
@@ -608,7 +621,7 @@ export default function Events() {
                                 </IconButton>
                               </Tooltip>
                             )}
-                            <Tooltip title="Resolve">
+                            <Tooltip title={t("events.resolve")}>
                               <IconButton
                                 size="small"
                                 color="success"

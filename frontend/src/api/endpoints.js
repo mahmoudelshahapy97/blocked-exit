@@ -1,4 +1,4 @@
-import client, { fetchImageObjectUrl, mediaUrl } from "./client";
+import client, { API_BASE, fetchImageObjectUrl, mediaUrl } from "./client";
 
 /** One function per backend route, so no component builds a URL by hand. */
 
@@ -144,6 +144,9 @@ export const monitoring = {
 // --- events ---------------------------------------------------------------
 export const events = {
   list: (params, opts) => client.get("/events", { params, ...opts }).then((r) => r.data),
+  /** The list's filters as a CSV download (a Blob, so the token stays in the header). */
+  exportBlob: (params) =>
+    client.get("/events/export.csv", { params, responseType: "blob" }).then((r) => r.data),
   get: (id) => client.get(`/events/${id}`).then((r) => r.data),
   overview: (opts) => client.get("/events/overview", opts).then((r) => r.data),
   /** Object URL of the event's snapshot; the caller revokes it. */
@@ -214,3 +217,31 @@ export const analytics = {
 };
 
 export default { health, auth, workspaces, cameras, monitoring, events, alerts, analytics };
+
+// --- notifications ----------------------------------------------------------
+// Addressed to the account, not the active workspace: the bell lists every
+// workspace the caller can see, and each row names its own.
+export const notifications = {
+  /** {unread_only, kind, workspace_id, limit, offset} -> {items, total, unread}. */
+  list: (params, opts) => client.get("/notifications", { params, ...opts }).then((r) => r.data),
+  unreadCount: (opts) => client.get("/notifications/unread-count", opts).then((r) => r.data.unread),
+  /** The listed ids, or every unread one when none are given. -> {marked, unread} */
+  markRead: (ids) =>
+    client.post("/notifications/read", ids ? { notification_ids: ids } : {}).then((r) => r.data),
+  markUnread: (id) => client.delete(`/notifications/${id}/read`).then((r) => r.data),
+  /** A "system" notification to yourself, to check the bell and the socket end to end. */
+  sendTest: () => client.post("/notifications/test").then((r) => r.data),
+  /** ws(s)://<host>/api/v1/notifications/ws; the token goes in the first message. */
+  socketUrl: () => {
+    const base = new URL(API_BASE, window.location.href).toString().replace(/\/$/, "");
+    return `${base.replace(/^http/, "ws")}/notifications/ws`;
+  },
+};
+
+// --- audit log ----------------------------------------------------------------
+export const audit = {
+  /** {action, actor, since, until, limit, offset} -> {items, total}. Admins only. */
+  list: (params, opts) => client.get("/audit-logs", { params, ...opts }).then((r) => r.data),
+  exportBlob: (params) =>
+    client.get("/audit-logs/export.csv", { params, responseType: "blob" }).then((r) => r.data),
+};
