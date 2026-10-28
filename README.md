@@ -101,7 +101,7 @@ The shared screens never import a console's API modules. They talk to one object
   },
   api: {
     health(opts),                        // -> {status, db_connection_ok, workers:{running,total}, version}
-    authOptions(opts),                   // -> {password_reset, notify_email, signup}
+    authOptions(opts),                   // -> {password_reset, notify_email, signup, bootstrap}
     changePassword(current, next),
     forgotPassword(email),
     resetPassword({email, code, newPassword}),
