@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Annotated
 
-from fastapi import Depends, Header
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +18,6 @@ from app.models.camera import Camera
 from app.models.user import User, Workspace
 from app.services import auth as auth_service
 from app.services.stream_manager import StreamManager, stream_manager
-from app.utils.timing import utcnow
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -38,6 +36,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     session: SessionDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
 ) -> User:
@@ -67,17 +66,11 @@ async def get_current_user(
     # A password change (or an admin-forced logout) stamps a cutoff row; any
     # access token minted before that moment must stop working immediately,
     # not linger until its own expiry.
-    cutoff = await auth_service.latest_cutoff(session, user.id)
-    issued_at = claims.get("iat")
-    if cutoff is not None and issued_at is not None:
-        token_issued = datetime.fromtimestamp(
-            issued_at, tz=cutoff.tzinfo or utcnow().tzinfo
-        )
-        if token_issued < cutoff:
-            raise AuthError("Session has been invalidated, please log in again")
+    if await auth_service.issued_before_cutoff(session, user.id, claims.get("iat")):
+        raise AuthError("Session has been invalidated, please log in again")
 
-    # Stashed for resolve_workspace, which needs the claim without redecoding.
-    user._token_workspace_id = claims.get("workspace_id")  # type: ignore[attr-defined]
+    # For the audit middleware, which records who made the request.
+    request.state.audit_user = user
     return user
 
 
@@ -92,40 +85,23 @@ class WorkspaceContext:
 
 
 async def resolve_workspace(
-    session: SessionDep,
-    user: CurrentUserDep,
-    x_workspace_id: Annotated[int | None, Header(alias="X-Workspace-Id")] = None,
+    session: SessionDep, user: CurrentUserDep
 ) -> WorkspaceContext:
     """Which workspace this request acts in, and what the caller may do there.
 
-    Resolution order: an explicit X-Workspace-Id header, then the workspace
-    claim baked into the access token, then the user's stored default. A
-    platform admin may name any workspace; anyone else must be a member of it.
+    The platform's model: the active workspace is stored server-side on the
+    user (POST /workspaces/{id}/activate), not chosen per request, so every tab
+    and every <img> fetch agrees on it. Membership is re-checked on each call,
+    so a removed member loses access at once rather than when a token expires.
     """
-    requested = x_workspace_id or getattr(user, "_token_workspace_id", None)
-
-    if requested is None:
-        workspace = await auth_service.resolve_default_workspace(session, user)
-        if workspace is None:
-            raise NotFoundError("No workspace found for this account. Create one first.")
-        requested = workspace.id
-    else:
-        workspace = await session.get(Workspace, requested)
-        if workspace is None or not workspace.is_active:
-            raise NotFoundError(f"Workspace {requested} not found")
-
-    membership = await auth_service.get_membership(
-        session, user_id=user.id, workspace_id=workspace.id
-    )
-    if membership is None:
-        if not user.is_platform_admin:
-            # 404, not 403: confirming the workspace exists to someone outside
-            # it is itself a leak.
-            raise NotFoundError(f"Workspace {workspace.id} not found")
-        role = WorkspaceRole.OWNER  # platform admins act with full authority
-    else:
-        role = WorkspaceRole(membership.role)
-
+    workspace = await auth_service.resolve_active_workspace(session, user)
+    if workspace is None:
+        raise NotFoundError(
+            "No active workspace. Ask a superadmin to add you to a workspace."
+        )
+    role = await auth_service.workspace_role_for(session, user, workspace)
+    if role is None:  # pragma: no cover - resolve_active_workspace checked it
+        raise NotFoundError(f"Workspace {workspace.id} not found")
     return WorkspaceContext(user=user, workspace=workspace, role=role)
 
 
@@ -160,24 +136,21 @@ def require_workspace_role(minimum: WorkspaceRole):
 ViewerCtxDep = Annotated[
     WorkspaceContext, Depends(require_workspace_role(WorkspaceRole.VIEWER))
 ]
-OperatorCtxDep = Annotated[
-    WorkspaceContext, Depends(require_workspace_role(WorkspaceRole.OPERATOR))
+MemberCtxDep = Annotated[
+    WorkspaceContext, Depends(require_workspace_role(WorkspaceRole.MEMBER))
 ]
 AdminCtxDep = Annotated[
     WorkspaceContext, Depends(require_workspace_role(WorkspaceRole.ADMIN))
 ]
-OwnerCtxDep = Annotated[
-    WorkspaceContext, Depends(require_workspace_role(WorkspaceRole.OWNER))
-]
 
 
-async def require_platform_admin(user: CurrentUserDep) -> User:
-    if not user.is_platform_admin:
-        raise ForbiddenError("Requires a platform administrator")
+async def require_superadmin(user: CurrentUserDep) -> User:
+    if not user.is_superadmin:
+        raise ForbiddenError("Requires a superadmin")
     return user
 
 
-PlatformAdminDep = Annotated[User, Depends(require_platform_admin)]
+SuperadminDep = Annotated[User, Depends(require_superadmin)]
 
 
 async def get_camera_or_404(
@@ -201,6 +174,7 @@ CameraDep = Annotated[Camera, Depends(get_camera_or_404)]
 
 async def get_camera_via_ticket_or_bearer(
     camera_id: int,
+    request: Request,
     session: SessionDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
     ticket: str | None = None,
@@ -228,8 +202,8 @@ async def get_camera_via_ticket_or_bearer(
             raise NotFoundError(f"Camera {camera_id} not found")
         return camera
 
-    user = await get_current_user(session, credentials)
-    ctx = await resolve_workspace(session, user, None)
+    user = await get_current_user(request, session, credentials)
+    ctx = await resolve_workspace(session, user)
     return await get_camera_or_404(camera_id, ctx, session)
 
 

@@ -29,7 +29,8 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 ViewerDep = Depends(require_workspace_role(WorkspaceRole.VIEWER))
-OperatorDep = Depends(require_workspace_role(WorkspaceRole.OPERATOR))
+MemberDep = Depends(require_workspace_role(WorkspaceRole.MEMBER))
+AdminDep = Depends(require_workspace_role(WorkspaceRole.ADMIN))
 
 # Each viewer costs one JPEG encode per frame. Unbounded viewers would compete
 # with detection for CPU on exactly the hardware that has none to spare.
@@ -39,7 +40,7 @@ _viewers = asyncio.Semaphore(settings.MAX_MJPEG_CLIENTS)
 @router.post(
     "/{camera_id}/start",
     response_model=MonitoringActionResponse,
-    dependencies=[OperatorDep],
+    dependencies=[MemberDep],
 )
 async def start_monitoring(
     camera: CameraDep, manager: ManagerDep
@@ -55,7 +56,7 @@ async def start_monitoring(
 @router.post(
     "/{camera_id}/stop",
     response_model=MonitoringActionResponse,
-    dependencies=[OperatorDep],
+    dependencies=[MemberDep],
 )
 async def stop_monitoring(
     camera: CameraDep, manager: ManagerDep
@@ -71,7 +72,7 @@ async def stop_monitoring(
 @router.post(
     "/{camera_id}/restart",
     response_model=MonitoringActionResponse,
-    dependencies=[OperatorDep],
+    dependencies=[MemberDep],
 )
 async def restart_monitoring(
     camera: CameraDep, manager: ManagerDep

@@ -132,7 +132,10 @@ docker-compose.override.yml
 
 data/
 datasets/
-models/
+# Weights only: a bare models/ also matched backend/app/models (the ORM).
+# backend/models (the YOLO weights the API loads) is tracked.
+/models/
+!backend/models/*.pt
 checkpoints/
 runs/
 

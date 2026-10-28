@@ -7,9 +7,21 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.enums import StrategyName
+from app.core.redaction import redact_url
 from app.utils.geometry import normalize_polygon
 
 Polygon = list[list[float]]
+
+HIERARCHY_FIELDS = ("location", "area", "building", "floor_level", "zone")
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    """"  " and "" mean "not set": an empty level would otherwise show up in the
+    hierarchy filters as a blank option nobody can tell apart."""
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
 
 
 def _looks_like_pixels(value: Polygon) -> bool:
@@ -42,9 +54,20 @@ def _validate_polygon(value: Polygon | None) -> Polygon | None:
     return value
 
 
-class CameraBase(BaseModel):
+class _HierarchyFields(BaseModel):
+    @field_validator(*HIERARCHY_FIELDS, check_fields=False)
+    @classmethod
+    def _blank_hierarchy(cls, value: str | None) -> str | None:
+        return _blank_to_none(value)
+
+
+class CameraBase(_HierarchyFields):
     name: str = Field(min_length=1, max_length=120)
     location: str | None = Field(None, max_length=255)
+    area: str | None = Field(None, max_length=100)
+    building: str | None = Field(None, max_length=100)
+    floor_level: str | None = Field(None, max_length=20)
+    zone: str | None = Field(None, max_length=100)
     rtsp_url: str = Field(
         min_length=1,
         max_length=512,
@@ -69,9 +92,13 @@ class CameraCreate(CameraBase):
     pass
 
 
-class CameraUpdate(BaseModel):
+class CameraUpdate(_HierarchyFields):
     name: str | None = Field(None, min_length=1, max_length=120)
     location: str | None = Field(None, max_length=255)
+    area: str | None = Field(None, max_length=100)
+    building: str | None = Field(None, max_length=100)
+    floor_level: str | None = Field(None, max_length=20)
+    zone: str | None = Field(None, max_length=100)
     rtsp_url: str | None = Field(None, min_length=1, max_length=512)
     enabled: bool | None = None
     strategy: StrategyName | None = None
@@ -122,6 +149,14 @@ class CameraRead(CameraBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    source_host: str = Field(
+        "", description="rtsp_url with any credentials masked, safe to display"
+    )
+
+    @model_validator(mode="after")
+    def _mask_source(self) -> CameraRead:
+        self.source_host = redact_url(self.rtsp_url)
+        return self
     reference_bbox: list[float] | None = None
     reference_captured_at: datetime | None = None
     created_at: datetime
@@ -134,3 +169,26 @@ class ReferenceCaptureResponse(BaseModel):
     confidence: float
     captured_at: datetime
     message: str
+
+
+class CameraHierarchy(BaseModel):
+    """Distinct values for each level, narrowed by the levels above it."""
+
+    locations: list[str]
+    areas: list[str]
+    buildings: list[str]
+    floor_levels: list[str]
+    zones: list[str]
+
+
+class ProbeResult(BaseModel):
+    """One "Test connection" result (the platform's rtsp_probe output)."""
+
+    camera_id: int
+    camera_name: str
+    reachable: bool
+    latency_ms: float | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    error: str | None = None

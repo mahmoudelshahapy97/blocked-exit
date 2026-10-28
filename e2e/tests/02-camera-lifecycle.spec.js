@@ -1,4 +1,3 @@
-import { expect, test } from "@playwright/test";
 import {
   API,
   CAMERA_LOCATION,
@@ -6,7 +5,9 @@ import {
   VIDEO_SOURCE,
   collectPageProblems,
   deleteCameraIfPresent,
+  expect,
   findCamera,
+  test,
   waitForApi,
 } from "./helpers.js";
 
@@ -55,7 +56,9 @@ test("registering an exit against the test clip lands on the zone editor", async
   const problems = collectPageProblems(page);
 
   await page.goto("/cameras");
-  await page.getByRole("link", { name: /add exit/i }).click();
+  // On an empty list the page offers "Add exit" twice (header and empty
+  // state); which one exists depends on whether the list has loaded yet.
+  await page.getByRole("link", { name: /add exit/i }).first().click();
   await expect(page).toHaveURL(/\/cameras\/new$/);
 
   await page.getByLabel("Name").fill(CAMERA_NAME);
@@ -203,8 +206,8 @@ test("the camera list joins the record with its live status", async ({ page }) =
   // Accessibility renders as a percentage once a verdict exists.
   await expect(row).toContainText(/%/, { timeout: 30_000 });
 
-  // Search filters on name, location and source.
-  const search = page.getByPlaceholder(/search name, location, url/i);
+  // Search filters on name, place (the location hierarchy) and source.
+  const search = page.getByPlaceholder(/search name, place, url/i);
   await search.fill("no-such-exit-xyz");
   await expect(page.getByText(/no exit matches that search/i)).toBeVisible();
   await search.fill(CAMERA_LOCATION);

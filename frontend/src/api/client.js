@@ -2,10 +2,10 @@ import axios from "axios";
 import {
   clearSession,
   getAccessToken,
-  getActiveWorkspaceId,
   getStoredRefreshToken,
   setSession,
 } from "./tokenStore";
+import i18n from "i18next";
 
 /**
  * Relative baseURL on purpose: the Vite proxy (dev) or whatever serves the
@@ -30,10 +30,8 @@ const refreshClient = axios.create({ baseURL: API_BASE, timeout: 20000 });
 client.interceptors.request.use((config) => {
   const token = getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
-
-  const workspaceId = getActiveWorkspaceId();
-  if (workspaceId) config.headers["X-Workspace-Id"] = String(workspaceId);
-
+  // No workspace header: the active workspace is stored server-side per user,
+  // so every tab (and every <img> fetch) acts in the same one.
   return config;
 });
 
@@ -44,7 +42,17 @@ client.interceptors.request.use((config) => {
  */
 let refreshPromise = null;
 
-async function refreshAccessToken() {
+const TOKEN_ROUTES = [
+  "/auth/login",
+  "/auth/signup",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/bootstrap",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+];
+
+export async function refreshAccessToken() {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const refreshToken = getStoredRefreshToken();
@@ -63,7 +71,10 @@ client.interceptors.response.use(
   (response) => response,
   async (error) => {
     const { config, response } = error;
-    const isAuthRoute = config?.url?.startsWith("/auth/");
+    // Only the endpoints that issue or end tokens are exempt. /auth/me is a
+    // normal authenticated call -- it is how a reloaded tab, whose in-memory
+    // access token is gone, resumes the session from the refresh token.
+    const isAuthRoute = TOKEN_ROUTES.some((route) => config?.url?.startsWith(route));
 
     // Only ever retry once: config._retried stops a second 401 from the
     // retried request itself looping back through here forever.
@@ -110,11 +121,11 @@ export function errorMessage(error) {
         .join("; ");
     }
   }
-  if (error?.code === "ECONNABORTED") return "The backend did not respond in time.";
+  if (error?.code === "ECONNABORTED") return i18n.t("common:errors.timeout");
   if (error?.message === "Network Error") {
-    return "Cannot reach the backend. Is uvicorn running on the port VITE_API_TARGET points at?";
+    return i18n.t("common:errors.network");
   }
-  return error?.message || "Something went wrong.";
+  return error?.message || i18n.t("common:errors.generic");
 }
 
 export function mediaUrl(path, params = {}) {

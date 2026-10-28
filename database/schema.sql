@@ -1,8 +1,8 @@
 -- ---------------------------------------------------------------------------
 -- InsightEye — Blocked Exit Detection : schema
 --
--- Mirrors backend/alembic/versions/0001_initial_schema.py and
--- 0002_auth_and_workspaces.py exactly. Alembic remains the source of truth for
+-- Mirrors backend/alembic/versions/ (0001 through the newest revision named in
+-- the stamp note at the foot of this file) exactly. Alembic remains the source of truth for
 -- a running deployment; this file exists for the cases Alembic cannot serve —
 -- reviewing the shape of the database without a Python environment,
 -- provisioning a read-replica or reporting schema, and diffing what is
@@ -53,14 +53,18 @@ CREATE TABLE IF NOT EXISTS app_user (
     full_name            VARCHAR(160),
 
     password_hash        VARCHAR(255) NOT NULL,   -- argon2
-    -- Platform-wide role, independent of any workspace membership.
-    -- 'admin' | 'user'.
-    role                 VARCHAR(16)  NOT NULL DEFAULT 'user',
+    -- Platform-wide role, independent of any workspace membership, as on the
+    -- InsightEye platform: 'superadmin' runs the deployment (users, workspaces,
+    -- rosters) and may open any workspace; 'admin' acts as a workspace admin
+    -- wherever it is a member; 'user' gets its membership role.
+    role                 VARCHAR(16)  NOT NULL DEFAULT 'user'
+        CONSTRAINT ck_app_user_role CHECK (role IN ('superadmin', 'admin', 'user')),
     is_active            BOOLEAN      NOT NULL DEFAULT TRUE,
 
-    -- Which workspace this user lands in at login when they belong to
-    -- several. ON DELETE SET NULL: losing a workspace must not delete the
-    -- person who was looking at it.
+    -- The user's ACTIVE workspace: every request acts in it, and it is
+    -- switched server-side (POST /workspaces/{id}/activate), so all of a
+    -- user's sessions agree. ON DELETE SET NULL: losing a workspace must not
+    -- delete the person who was looking at it.
     default_workspace_id INTEGER
         REFERENCES workspace (id) ON DELETE SET NULL,
 
@@ -78,20 +82,22 @@ CREATE        INDEX IF NOT EXISTS ix_app_user_default_workspace_id ON app_user (
 -- ---------------------------------------------------------------------------
 -- workspace_member — one user's role in one workspace
 --
--- 'owner' | 'admin' | 'operator' | 'viewer', ranked in that order — see
--- app.core.enums.WorkspaceRole. A user may belong to several workspaces with
--- a different role in each, so authorisation is always the pair
--- (user, workspace), never the user alone.
+-- 'admin' | 'member' | 'viewer', ranked in that order — the platform's
+-- workspace roles, see app.core.enums.WorkspaceRole. A user may belong to
+-- several workspaces with a different role in each, so authorisation is always
+-- the pair (user, workspace), never the user alone. Only a superadmin edits
+-- this table; every workspace keeps at least one admin.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS workspace_member (
     id           SERIAL PRIMARY KEY,
     workspace_id INTEGER     NOT NULL REFERENCES workspace (id) ON DELETE CASCADE,
     user_id      INTEGER     NOT NULL REFERENCES app_user (id) ON DELETE CASCADE,
-    role         VARCHAR(16) NOT NULL DEFAULT 'viewer',
+    role         VARCHAR(16) NOT NULL DEFAULT 'member',
 
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    CONSTRAINT uq_workspace_member UNIQUE (workspace_id, user_id)
+    CONSTRAINT uq_workspace_member UNIQUE (workspace_id, user_id),
+    CONSTRAINT ck_workspace_member_role CHECK (role IN ('admin', 'member', 'viewer'))
 );
 
 CREATE INDEX IF NOT EXISTS ix_workspace_member_workspace_id     ON workspace_member (workspace_id);
@@ -133,7 +139,14 @@ CREATE TABLE IF NOT EXISTS camera (
     workspace_id          INTEGER      NOT NULL
         REFERENCES workspace (id) ON DELETE CASCADE,
     name                  VARCHAR(120)             NOT NULL,
+    -- Where the exit is, coarsest to finest — the platform's camera
+    -- hierarchy. Events and analytics filter by any level (exact match, OR
+    -- within a level, AND across levels). NULL means "not set", never ''.
     location              VARCHAR(255),
+    area                  VARCHAR(100),
+    building              VARCHAR(100),
+    floor_level           VARCHAR(20),
+    zone                  VARCHAR(100),
     -- rtsp:// URL, or a local video file path when exercising the pipeline
     -- without hardware. Long enough for a URL carrying credentials.
     rtsp_url              VARCHAR(512)             NOT NULL,
@@ -173,6 +186,8 @@ CREATE        INDEX IF NOT EXISTS ix_camera_workspace_id       ON camera (worksp
 CREATE        INDEX IF NOT EXISTS ix_camera_name               ON camera (name);
 CREATE        INDEX IF NOT EXISTS ix_camera_enabled            ON camera (enabled);
 CREATE        INDEX IF NOT EXISTS ix_camera_workspace_enabled  ON camera (workspace_id, enabled);
+CREATE        INDEX IF NOT EXISTS ix_camera_workspace_hierarchy
+    ON camera (workspace_id, location, area, building, floor_level, zone);
 
 -- ---------------------------------------------------------------------------
 -- blockage_event — one confirmed obstruction episode
@@ -209,7 +224,30 @@ CREATE TABLE IF NOT EXISTS blockage_event (
 
     -- [{label, class_id, confidence, track_id, bbox, area_pct}, ...]
     blocking_objects       JSONB,
-    snapshot_path          VARCHAR(512)
+    snapshot_path          VARCHAR(512),
+
+    -- The band of peak_risk_score: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'.
+    risk_level             VARCHAR(16),
+    -- Peak and mean of each analysed frame's most confident blocking
+    -- detection, for the confidence-audit analytics.
+    confidence             NUMERIC(5,4),
+    avg_confidence         NUMERIC(5,4),
+
+    -- Operator workflow (the platform's event lifecycle), independent of
+    -- whether the blockage itself has ended: a blockage can clear long before
+    -- anyone looks at it. Resolving from 'detected' stamps acknowledged_* too.
+    status                 VARCHAR(16)  NOT NULL DEFAULT 'detected'
+        CONSTRAINT ck_blockage_event_status
+            CHECK (status IN ('detected', 'acknowledged', 'resolved')),
+    acknowledged_at        TIMESTAMPTZ,
+    acknowledged_by_id     INTEGER
+        CONSTRAINT fk_blockage_event_acknowledged_by_id
+            REFERENCES app_user (id) ON DELETE SET NULL,
+    resolved_at            TIMESTAMPTZ,
+    resolved_by_id         INTEGER
+        CONSTRAINT fk_blockage_event_resolved_by_id
+            REFERENCES app_user (id) ON DELETE SET NULL,
+    resolution_note        VARCHAR(1000)
 );
 
 CREATE INDEX IF NOT EXISTS ix_blockage_event_workspace_id      ON blockage_event (workspace_id);
@@ -218,6 +256,9 @@ CREATE INDEX IF NOT EXISTS ix_blockage_event_started_at        ON blockage_event
 -- Composite: every analytics query filters by camera/tenant and time window together.
 CREATE INDEX IF NOT EXISTS ix_blockage_event_camera_started    ON blockage_event (camera_id, started_at);
 CREATE INDEX IF NOT EXISTS ix_blockage_event_workspace_started ON blockage_event (workspace_id, started_at);
+-- The event list's "unresolved" view and the overview counters.
+CREATE INDEX IF NOT EXISTS ix_blockage_event_workspace_status_started
+    ON blockage_event (workspace_id, status, started_at);
 
 -- ---------------------------------------------------------------------------
 -- alert — one delivery attempt, on one channel, for one event
@@ -269,13 +310,13 @@ COMMIT;
 -- file has the tables but no version row, so `alembic upgrade head` would try
 -- to create them a second time and fail. Stamp it instead:
 --
---   alembic stamp 0002
+--   alembic stamp 0005
 --
 -- Equivalent to, from psql:
 --
 --   CREATE TABLE IF NOT EXISTS alembic_version (
 --       version_num VARCHAR(32) NOT NULL CONSTRAINT alembic_version_pkc PRIMARY KEY
 --   );
---   INSERT INTO alembic_version (version_num) VALUES ('0002')
+--   INSERT INTO alembic_version (version_num) VALUES ('0005')
 --       ON CONFLICT DO NOTHING;
 -- ---------------------------------------------------------------------------

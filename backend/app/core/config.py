@@ -93,13 +93,19 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
-    # The very first account to sign up becomes a platform admin and owns a
-    # workspace. Turn this off once that account exists and signup becomes
-    # invitation-only.
-    ALLOW_OPEN_SIGNUP: bool = True
+    # Like the platform, accounts are created by a superadmin. The very first
+    # signup is always accepted and becomes that superadmin; with this on, later
+    # signups are accepted too and join the shared "Default Workspace" as members.
+    ALLOW_OPEN_SIGNUP: bool = False
     # Revoked-token rows are only useful until the token would have expired
     # anyway; the retention sweep drops them after that.
     TOKEN_CLEANUP_ENABLED: bool = True
+    # "Forgot your password?": a one-time code mailed to the account's email
+    # (app/services/otp.py), over the same SMTP settings as alert email. Off
+    # while SMTP_HOST is empty.
+    OTP_TTL_SECONDS: int = 600
+    OTP_RESEND_SECONDS: int = 60
+    OTP_MAX_ATTEMPTS: int = 5
 
     # --- Database --------------------------------------------------------
     DATABASE_URL: str = (
@@ -113,7 +119,7 @@ class Settings(BaseSettings):
     # --- Models ----------------------------------------------------------
     MODEL_DIR: Path = BASE_DIR / "models"
     MODEL_PATH: str = "yolo11n.pt"
-    SEG_MODEL_PATH: str = "yolo11n-seg.pt"
+    SEG_MODEL_PATH: str = "yolo26n-seg.pt"
     DOOR_MODEL_PATH: str | None = None  # e.g. "door_yolo11s.pt" once trained
     DEVICE: str = "cpu"
     CONF_THRESHOLD: float = 0.35
@@ -154,6 +160,16 @@ class Settings(BaseSettings):
     # Every MJPEG viewer costs a JPEG encode per frame; cap concurrent viewers
     # so a few forgotten browser tabs cannot starve the detection pipeline.
     MAX_MJPEG_CLIENTS: int = 8
+    # "Test connection": how long one probe may take to open the source and
+    # read a frame, and how many sources may be probed at once (probe-all
+    # must not open every camera in the workspace simultaneously).
+    PROBE_TIMEOUT_S: float = 8.0
+    PROBE_CONCURRENCY: int = 4
+
+    # --- Reporting -------------------------------------------------------
+    # Days and hours in reports, filters and charts are local to this zone
+    # (the platform reports in Africa/Cairo). Storage stays UTC.
+    REPORT_TIMEZONE: str = "Africa/Cairo"
 
     # --- Worker supervision ----------------------------------------------
     WORKER_SUPERVISION_ENABLED: bool = True
@@ -168,6 +184,22 @@ class Settings(BaseSettings):
     ALERT_RETENTION_DAYS: int = 90
     SNAPSHOT_RETENTION_DAYS: int = 30
     SNAPSHOT_MAX_TOTAL_MB: int = 2048
+
+    # --- Notifications, audit, sign-in protection ------------------------
+    # In-app notifications (app/services/inbox.py) and the audit log.
+    NOTIFICATION_WS_PING_S: float = 25.0
+    NOTIFICATION_RETENTION_DAYS: int = 90
+    AUDIT_RETENTION_DAYS: int = 365
+    # A running camera that has been reconnecting or in error this long
+    # raises "camera offline", and "back online" once it recovers.
+    CAMERA_OFFLINE_AFTER_S: float = 60.0
+    CAMERA_HEALTH_INTERVAL_S: float = 15.0
+    # Failed sign-ins per login name + address within the window, then 429.
+    LOGIN_MAX_FAILURES: int = 5
+    LOGIN_FAILURE_WINDOW_S: int = 300
+    # Password-reset mails one address may ask for per window.
+    FORGOT_PASSWORD_MAX_PER_IP: int = 5
+    FORGOT_PASSWORD_WINDOW_S: int = 900
 
     # --- Alerting --------------------------------------------------------
     ALERTS_ENABLED: bool = True
@@ -197,6 +229,14 @@ class Settings(BaseSettings):
         """Accept `a,b,c` from .env as well as a JSON list."""
         if isinstance(value, str):
             return _parse_list(value)
+        return value
+
+    @field_validator("ENABLE_DOCS", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """`ENABLE_DOCS=` (as .env.example ships it) means "the default"."""
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @field_validator("OBSTACLE_CLASSES", mode="before")
@@ -256,6 +296,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENV.strip().lower() in {"production", "prod"}
+
+    @property
+    def password_reset_enabled(self) -> bool:
+        return bool(self.SMTP_HOST)
 
     @property
     def docs_enabled(self) -> bool:

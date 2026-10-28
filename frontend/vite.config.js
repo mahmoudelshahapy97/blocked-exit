@@ -1,4 +1,5 @@
 import { defineConfig, loadEnv } from "vite";
+import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -25,10 +26,18 @@ export default defineConfig(({ mode }) => {
     changeOrigin: true,
     timeout: 0,
     proxyTimeout: 0,
+    // The notification socket (/api/v1/notifications/ws) rides the same proxy.
+    ws: true,
   };
 
   return {
     plugins: [react()],
+    // The shared console UI is vendored source (git subtree), not a built
+    // package: compile it with the app and resolve its peers from here.
+    resolve: {
+      alias: { "@insighteye/ui": fileURLToPath(new URL("./packages/insighteye-ui/src", import.meta.url)) },
+      dedupe: ["react", "react-dom", "@mui/material", "@emotion/react", "@emotion/styled", "i18next", "react-i18next"],
+    },
     server: {
       port: Number(env.VITE_PORT) || 5173,
       strictPort: false,

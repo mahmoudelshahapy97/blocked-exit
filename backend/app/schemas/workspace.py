@@ -37,6 +37,16 @@ class WorkspaceWithRole(WorkspaceRead):
     camera_count: int = 0
 
 
+class WorkspacePermissions(BaseModel):
+    """What the caller may do in their active workspace."""
+
+    workspace_id: int
+    role: WorkspaceRole
+    can_resolve: bool = Field(description="Acknowledge/resolve events, run cameras")
+    can_manage: bool = Field(description="Configure exits, delete data, test alerts")
+    is_superadmin: bool = Field(description="Manage users, workspaces and rosters")
+
+
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     slug: str | None = Field(None, max_length=64)
@@ -58,8 +68,6 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=120)
     description: str | None = Field(None, max_length=500)
-    # Quota and active flag are platform-admin only; the route enforces that,
-    # because a workspace owner raising their own quota defeats the point.
     camera_quota: int | None = Field(None, ge=1, le=10_000)
     is_active: bool | None = None
 
@@ -80,14 +88,28 @@ class MemberRead(BaseModel):
 class MemberAdd(BaseModel):
     """Add an existing account to this workspace.
 
-    By email or username — there is no invitation email in this service, so the
-    person must already have signed up.
+    By id, email or username — there are no invitations, so the account must
+    already exist (a superadmin creates it under /auth/users).
     """
 
+    user_id: int | None = None
     email: EmailStr | None = None
     username: str | None = None
-    role: WorkspaceRole = WorkspaceRole.VIEWER
+    role: WorkspaceRole = WorkspaceRole.MEMBER
 
 
 class MemberUpdate(BaseModel):
     role: WorkspaceRole
+
+
+class WorkspaceCamera(BaseModel):
+    """One camera as listed on the superadmin's workspace page. The source is
+    masked: this view is for oversight, not configuration."""
+
+    id: int
+    name: str
+    location: str | None = None
+    enabled: bool
+    strategy: str
+    source: str = Field(description="Stream URL with any credentials masked")
+    created_at: datetime

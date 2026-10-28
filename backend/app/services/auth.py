@@ -1,7 +1,8 @@
 """User accounts, workspace provisioning, and token lifecycle.
 
 Splits the reference service's `user_service` + `session_service` in two halves
-of one module, minus the OTP / email / PKCE surface this app has no use for.
+of one module, minus the PKCE surface this app has no use for. The emailed
+password reset code lives in `app.services.otp`.
 
 Everything that needs a database lives here; the pure crypto lives in
 `app.core.security`.
@@ -23,9 +24,13 @@ from app.core.security import TokenError
 from app.models.user import RevokedToken, User, Workspace, WorkspaceMember
 from app.schemas.auth import TokenPair
 from app.schemas.workspace import slugify
+from app.services import otp
 from app.utils.timing import utcnow
 
 logger = get_logger(__name__)
+
+DEFAULT_WORKSPACE_SLUG = "default"
+DEFAULT_WORKSPACE_NAME = "Default Workspace"
 
 
 # --- lookups ---------------------------------------------------------------
@@ -46,6 +51,13 @@ async def get_user_by_login(session: AsyncSession, identifier: str) -> User | No
     )
 
 
+async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
+    """Email only, case-insensitively: what a person types at password reset."""
+    return await session.scalar(
+        select(User).where(func.lower(User.email) == email.strip().lower())
+    )
+
+
 async def user_count(session: AsyncSession) -> int:
     return int(await session.scalar(select(func.count(User.id))) or 0)
 
@@ -61,24 +73,9 @@ async def _unique_slug(session: AsyncSession, base: str) -> str:
     return candidate
 
 
-async def create_user_with_workspace(
-    session: AsyncSession,
-    *,
-    username: str,
-    email: str,
-    password: str,
-    full_name: str | None = None,
-    workspace_name: str | None = None,
-) -> tuple[User, Workspace]:
-    """Register an account and the workspace it owns, in one transaction.
-
-    The first account ever created becomes a platform admin -- the same
-    bootstrap rule as the reference service. Without it a fresh deployment has
-    no way to reach the admin-only routes, since there is nobody to grant them.
-    """
-    email = email.strip().lower()
-    username = username.strip()
-
+async def _check_identity_free(
+    session: AsyncSession, *, username: str, email: str
+) -> None:
     clash = await session.scalar(
         select(User).where(
             or_(
@@ -92,24 +89,58 @@ async def create_user_with_workspace(
         # oracle for "does this person have an account here".
         raise ConflictError("That username or email is already registered")
 
-    is_first_user = await user_count(session) == 0
 
-    default_workspace_name = workspace_name or f"{username} workspace"
-    workspace = Workspace(
-        name=default_workspace_name[:120],
-        slug=await _unique_slug(session, workspace_name or username),
+async def _default_workspace(session: AsyncSession, name: str | None = None) -> Workspace:
+    """The shared workspace self-registered accounts join, created on first use."""
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.slug == DEFAULT_WORKSPACE_SLUG)
     )
-    session.add(workspace)
-    # Flush, not commit: the workspace id is needed for the rows below, but the
-    # whole registration must still roll back as one unit if anything fails.
-    await session.flush()
+    if workspace is None:
+        workspace = Workspace(
+            name=(name or DEFAULT_WORKSPACE_NAME)[:120],
+            slug=DEFAULT_WORKSPACE_SLUG,
+        )
+        session.add(workspace)
+        await session.flush()
+    return workspace
+
+
+async def signup(
+    session: AsyncSession,
+    *,
+    username: str,
+    email: str,
+    password: str,
+    full_name: str | None = None,
+    workspace_name: str | None = None,
+) -> tuple[User, Workspace]:
+    """Self-registration, which the platform allows in two cases only.
+
+    The very first account bootstraps the deployment: it becomes SUPERADMIN
+    and the admin of a fresh "Default Workspace" (named `workspace_name` when
+    given). Later accounts arrive here only when ALLOW_OPEN_SIGNUP is on, and
+    join that shared workspace as a MEMBER -- they never get a tenant of their
+    own; creating tenants is the superadmin's job.
+    """
+    email = email.strip().lower()
+    username = username.strip()
+    await _check_identity_free(session, username=username, email=email)
+
+    is_first_user = await user_count(session) == 0
+    workspace = await _default_workspace(
+        session, workspace_name if is_first_user else None
+    )
+    if is_first_user and workspace_name and workspace.name != workspace_name:
+        # Migration 0002 seeds a "Default" workspace even on a fresh database;
+        # the bootstrap account gets to name it.
+        workspace.name = workspace_name[:120]
 
     user = User(
         username=username,
         email=email,
         full_name=full_name,
         password_hash=security.hash_password(password),
-        role=UserRole.ADMIN.value if is_first_user else UserRole.USER.value,
+        role=UserRole.SUPERADMIN.value if is_first_user else UserRole.USER.value,
         default_workspace_id=workspace.id,
     )
     session.add(user)
@@ -119,7 +150,7 @@ async def create_user_with_workspace(
         WorkspaceMember(
             workspace_id=workspace.id,
             user_id=user.id,
-            role=WorkspaceRole.OWNER.value,
+            role=(WorkspaceRole.ADMIN if is_first_user else WorkspaceRole.MEMBER).value,
         )
     )
     await session.commit()
@@ -127,12 +158,56 @@ async def create_user_with_workspace(
     await session.refresh(workspace)
 
     logger.info(
-        "Registered user %s (platform_admin=%s) with workspace %s",
+        "Registered user %s (superadmin=%s) in workspace %s",
         user.username,
         is_first_user,
         workspace.slug,
     )
     return user, workspace
+
+
+async def create_user(
+    session: AsyncSession,
+    *,
+    username: str,
+    email: str,
+    password: str,
+    full_name: str | None = None,
+    role: UserRole = UserRole.USER,
+    workspace_id: int | None = None,
+    workspace_role: WorkspaceRole = WorkspaceRole.MEMBER,
+) -> User:
+    """A superadmin creating an account, optionally straight into a workspace,
+    which then becomes the account's active workspace."""
+    email = email.strip().lower()
+    username = username.strip()
+    await _check_identity_free(session, username=username, email=email)
+
+    if workspace_id is not None:
+        workspace = await session.get(Workspace, workspace_id)
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_id} not found")
+
+    user = User(
+        username=username,
+        email=email,
+        full_name=full_name,
+        password_hash=security.hash_password(password),
+        role=role.value,
+        default_workspace_id=workspace_id,
+    )
+    session.add(user)
+    await session.flush()
+    if workspace_id is not None:
+        session.add(
+            WorkspaceMember(
+                workspace_id=workspace_id, user_id=user.id, role=workspace_role.value
+            )
+        )
+    await session.commit()
+    await session.refresh(user)
+    logger.info("Created user %s (role=%s)", user.username, user.role)
+    return user
 
 
 # --- authentication ----------------------------------------------------------
@@ -192,26 +267,67 @@ async def list_memberships(
     return [(m, w) for m, w in rows.all()]
 
 
-async def resolve_default_workspace(
+async def resolve_active_workspace(
     session: AsyncSession, user: User
 ) -> Workspace | None:
-    """The workspace this user lands in when they do not name one.
+    """The workspace this user is working in, stored server-side per user.
 
-    Their stored default if it is still valid, otherwise any workspace they
-    belong to -- a user whose default workspace was deleted should still be
-    able to log in and see the rest.
+    Like the platform's active workspace: their stored choice while it is
+    still valid (active, and they still belong to it -- a superadmin belongs
+    everywhere), otherwise the first workspace they belong to. A superadmin
+    with no membership at all lands in the first active workspace.
     """
     if user.default_workspace_id is not None:
-        membership = await get_membership(
-            session, user_id=user.id, workspace_id=user.default_workspace_id
-        )
-        if membership is not None:
-            workspace = await session.get(Workspace, user.default_workspace_id)
-            if workspace is not None and workspace.is_active:
+        workspace = await session.get(Workspace, user.default_workspace_id)
+        if workspace is not None and workspace.is_active:
+            if user.is_superadmin or await get_membership(
+                session, user_id=user.id, workspace_id=workspace.id
+            ):
                 return workspace
 
     memberships = await list_memberships(session, user.id)
-    return memberships[0][1] if memberships else None
+    if memberships:
+        return memberships[0][1]
+    if user.is_superadmin:
+        return await session.scalar(
+            select(Workspace).where(Workspace.is_active.is_(True)).order_by(Workspace.name)
+        )
+    return None
+
+
+async def workspace_role_for(
+    session: AsyncSession, user: User, workspace: Workspace
+) -> WorkspaceRole | None:
+    """The user's effective role in one workspace, or None when they have no
+    business there. System admins are raised to ADMIN where they belong; a
+    superadmin is ADMIN everywhere."""
+    if user.is_superadmin:
+        return WorkspaceRole.ADMIN
+    membership = await get_membership(session, user_id=user.id, workspace_id=workspace.id)
+    if membership is None:
+        return None
+    if user.is_system_admin:
+        return WorkspaceRole.ADMIN
+    return WorkspaceRole(membership.role)
+
+
+async def activate_workspace(
+    session: AsyncSession, user: User, workspace_id: int
+) -> tuple[Workspace, WorkspaceRole]:
+    """Make `workspace_id` the user's active workspace (platform's
+    POST /workspaces/{id}/activate)."""
+    workspace = await session.get(Workspace, workspace_id)
+    role = (
+        await workspace_role_for(session, user, workspace)
+        if workspace is not None and workspace.is_active
+        else None
+    )
+    if role is None:
+        # 404, not 403: confirming the workspace exists to an outsider leaks it.
+        raise NotFoundError(f"Workspace {workspace_id} not found")
+    user.default_workspace_id = workspace.id
+    await session.commit()
+    return workspace, role
 
 
 # --- tokens --------------------------------------------------------------------
@@ -314,6 +430,10 @@ async def rotate_refresh_token(session: AsyncSession, refresh_token: str) -> Tok
     user = await get_user_by_id(session, int(claims["sub"]))
     if user is None or not user.is_active:
         raise AuthError("User no longer exists or is inactive")
+    # Without this a password change or reset would sign out every access
+    # token while the refresh token beside it quietly minted new ones.
+    if await issued_before_cutoff(session, user.id, claims.get("iat")):
+        raise AuthError("Session has been invalidated, please log in again")
 
     await revoke(
         session,
@@ -325,16 +445,10 @@ async def rotate_refresh_token(session: AsyncSession, refresh_token: str) -> Tok
         commit=False,
     )
 
-    workspace_id = claims.get("workspace_id")
-    # The workspace may have been revoked from this user since the token was
-    # minted, so re-check rather than carrying the claim forward blindly.
-    if workspace_id is not None:
-        membership = await get_membership(
-            session, user_id=user.id, workspace_id=workspace_id
-        )
-        if membership is None and not user.is_platform_admin:
-            workspace = await resolve_default_workspace(session, user)
-            workspace_id = workspace.id if workspace else None
+    # The claim is informational; the active workspace lives on the user row
+    # and may have changed (or been revoked) since this token was minted.
+    workspace = await resolve_active_workspace(session, user)
+    workspace_id = workspace.id if workspace else None
 
     pair = await issue_token_pair(session, user=user, workspace_id=workspace_id)
     await session.commit()
@@ -355,6 +469,9 @@ async def revoke_all_for_user(
             jti=f"user-cutoff:{user_id}:{utcnow().timestamp()}",
             user_id=user_id,
             token_type="cutoff",
+            # The API's clock, like every token's iat -- not the database's
+            # now(), which is also the start of the transaction, not this line.
+            revoked_at=utcnow(),
             # Outlives any token that could still be valid.
             expires_at=utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS + 1),
             reason=reason,
@@ -372,6 +489,21 @@ async def latest_cutoff(session: AsyncSession, user_id: int) -> datetime | None:
         .limit(1)
     )
     return row
+
+
+async def issued_before_cutoff(
+    session: AsyncSession, user_id: int, issued_at: int | float | None
+) -> bool:
+    """True when a token with this `iat` predates the user's latest cutoff.
+
+    Both sides come from the API's clock with sub-second precision (see
+    `security.create_token` and `revoke_all_for_user`), so a login made right
+    after a password reset is not mistaken for one made before it.
+    """
+    cutoff = await latest_cutoff(session, user_id)
+    if cutoff is None or issued_at is None:
+        return False
+    return float(issued_at) < cutoff.timestamp()
 
 
 async def purge_expired_revocations(session: AsyncSession) -> int:
@@ -400,6 +532,26 @@ async def change_password(
     user.password_hash = security.hash_password(new_password)
     await session.commit()
     await revoke_all_for_user(session, user.id, reason="password_change")
+
+
+async def reset_password_with_code(
+    session: AsyncSession, *, email: str, code: str, new_password: str
+) -> bool:
+    """Set a new password with an emailed code, then sign out everywhere.
+
+    False for an unknown or deactivated account and for a wrong, expired or
+    burnt code alike: the caller answers all of them the same way.
+    """
+    user = await get_user_by_email(session, email)
+    if user is None or not user.is_active:
+        return False
+    if not await otp.consume(session, user.id, code):
+        return False
+    user.password_hash = security.hash_password(new_password)
+    await session.commit()  # the new password and the spent code, together
+    await revoke_all_for_user(session, user.id, reason="password_reset")
+    logger.info("Password reset by emailed code for user %s", user.id)
+    return True
 
 
 async def require_user(session: AsyncSession, user_id: int) -> User:

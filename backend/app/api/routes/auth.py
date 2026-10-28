@@ -1,42 +1,77 @@
-"""Signup, login, token refresh, and the current-user profile."""
+"""Signup, login, token refresh, password reset by emailed code, and the
+current-user profile."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, BackgroundTasks, Request, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUserDep, PlatformAdminDep, SessionDep
+from app.api.deps import CurrentUserDep, SessionDep, SuperadminDep
+from app.core import security
 from app.core.config import settings
-from app.core.exceptions import ForbiddenError
+from app.core.exceptions import (
+    AppError,
+    AuthError,
+    ForbiddenError,
+    NotConfiguredError,
+    NotFoundError,
+)
+from app.core.ratelimit import SlidingWindow
 from app.models.user import User
 from app.schemas.auth import (
+    BootstrapStatus,
+    ForgotPasswordRequest,
     LoginRequest,
     LogoutRequest,
     MembershipRead,
+    MessageResponse,
     PasswordChange,
     RefreshRequest,
+    ResetPasswordRequest,
     SignupRequest,
     TokenPair,
     UserAdminUpdate,
+    UserCreate,
     UserProfile,
     UserRead,
     UserUpdate,
 )
+from app.services import audit, otp
 from app.services import auth as auth_service
+from app.services.audit import client_ip
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
+async def _signup_open(session) -> tuple[bool, bool]:
+    needs_bootstrap = await auth_service.user_count(session) == 0
+    return needs_bootstrap or settings.ALLOW_OPEN_SIGNUP, needs_bootstrap
+
+
+@router.get("/bootstrap", response_model=BootstrapStatus)
+async def bootstrap_status(session: SessionDep) -> BootstrapStatus:
+    """Public: whether the login page should offer a signup form at all."""
+    signup_open, needs_bootstrap = await _signup_open(session)
+    return BootstrapStatus(
+        signup_open=signup_open,
+        needs_bootstrap=needs_bootstrap,
+        password_reset=settings.password_reset_enabled,
+        notify_email=bool(settings.SMTP_HOST and settings.ALERT_EMAIL_FROM),
+    )
+
+
 @router.post("/signup", response_model=TokenPair, status_code=status.HTTP_201_CREATED)
 async def signup(payload: SignupRequest, session: SessionDep) -> TokenPair:
-    # The very first account bootstraps the platform regardless of this flag --
-    # otherwise a deployment with ALLOW_OPEN_SIGNUP=false could never be used.
-    if not settings.ALLOW_OPEN_SIGNUP and await auth_service.user_count(session) > 0:
+    # The platform has no public signup: accounts are created by a superadmin.
+    # The one exception is the very first account, which bootstraps the
+    # deployment as its superadmin -- otherwise nobody could ever log in.
+    signup_open, _ = await _signup_open(session)
+    if not signup_open:
         raise ForbiddenError(
-            "Open signup is disabled. Ask a workspace admin to add your account."
+            "Signup is closed. Contact your administrator for an account."
         )
 
-    user, workspace = await auth_service.create_user_with_workspace(
+    user, workspace = await auth_service.signup(
         session,
         username=payload.username,
         email=payload.email,
@@ -49,28 +84,61 @@ async def signup(payload: SignupRequest, session: SessionDep) -> TokenPair:
     )
 
 
+# Failed sign-ins per (login name, address), and reset mails per address.
+login_failures = SlidingWindow(
+    settings.LOGIN_MAX_FAILURES, settings.LOGIN_FAILURE_WINDOW_S
+)
+reset_requests = SlidingWindow(
+    settings.FORGOT_PASSWORD_MAX_PER_IP, settings.FORGOT_PASSWORD_WINDOW_S
+)
+
+
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginRequest, session: SessionDep) -> TokenPair:
-    user = await auth_service.authenticate(
-        session, identifier=payload.username, password=payload.password
+async def login(
+    payload: LoginRequest, request: Request, session: SessionDep
+) -> TokenPair:
+    ip = client_ip(request)
+    user_agent = request.headers.get("user-agent")
+    key = f"{payload.username.strip().lower()}|{ip}"
+    login_failures.check(
+        key, "Too many failed sign-ins. Try again in {seconds} s."
+    )
+    try:
+        user = await auth_service.authenticate(
+            session, identifier=payload.username, password=payload.password
+        )
+    except AuthError:
+        login_failures.hit(key)
+        await audit.record(
+            "auth.login_failed",
+            actor=payload.username.strip()[:120],
+            status="failure",
+            ip=ip,
+            user_agent=user_agent,
+            request_id=getattr(request.state, "request_id", None),
+        )
+        raise
+    login_failures.reset(key)
+    await audit.record(
+        "auth.login",
+        user=user,
+        target_type="user",
+        target_id=user.id,
+        ip=ip,
+        user_agent=user_agent,
+        request_id=getattr(request.state, "request_id", None),
     )
 
-    workspace_id = payload.workspace_id
-    if workspace_id is not None:
-        membership = await auth_service.get_membership(
-            session, user_id=user.id, workspace_id=workspace_id
-        )
-        if membership is None and not user.is_platform_admin:
-            # Do not confirm the workspace exists -- same reasoning as
-            # resolve_workspace: fall back rather than leak.
-            workspace_id = None
+    if payload.workspace_id is not None:
+        try:
+            await auth_service.activate_workspace(session, user, payload.workspace_id)
+        except NotFoundError:
+            # Do not confirm the workspace exists -- fall back rather than leak.
+            pass
 
-    if workspace_id is None:
-        workspace = await auth_service.resolve_default_workspace(session, user)
-        workspace_id = workspace.id if workspace else None
-
+    workspace = await auth_service.resolve_active_workspace(session, user)
     return await auth_service.issue_token_pair(
-        session, user=user, workspace_id=workspace_id
+        session, user=user, workspace_id=workspace.id if workspace else None
     )
 
 
@@ -93,10 +161,90 @@ async def logout(
     await session.commit()
 
 
+# --- password reset by emailed code ---------------------------------------------
+def _require_password_reset() -> None:
+    if not settings.password_reset_enabled:
+        raise NotConfiguredError(
+            "Password reset by email is not set up. Ask an administrator to "
+            "reset your password."
+        )
+
+
+@router.post("/forgot-password", response_model=MessageResponse)
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    session: SessionDep,
+    background: BackgroundTasks,
+) -> MessageResponse:
+    """Mail a one-time reset code to the account with this email.
+
+    The answer is the same whether or not the account exists, is deactivated,
+    or already got a code within OTP_RESEND_SECONDS, and the mail goes out
+    after the response, so neither the message nor the timing tells them apart.
+    """
+    _require_password_reset()
+    # Per address: otherwise this mails every account in turn.
+    ip = client_ip(request) or "?"
+    reset_requests.check(
+        ip, "Too many reset requests from this address. Try again in {seconds} s."
+    )
+    reset_requests.hit(ip)
+    user = await auth_service.get_user_by_email(session, payload.email)
+    if user is not None and user.is_active:
+        code = await otp.issue(session, user.id)
+        if code is not None:
+            background.add_task(
+                otp.send_code,
+                user_id=user.id,
+                email=user.email,
+                name=user.full_name or user.username,
+                code=code,
+            )
+    minutes = max(1, settings.OTP_TTL_SECONDS // 60)
+    return MessageResponse(
+        message="If an account uses that email, a reset code is on its way. "
+        f"It expires in {minutes} minutes."
+    )
+
+
+@router.post("/reset-password", response_model=MessageResponse)
+async def reset_password(
+    payload: ResetPasswordRequest, request: Request, session: SessionDep
+) -> MessageResponse:
+    """Check the emailed code and set the new password in one step.
+
+    Every session of the account is signed out, as on a password change. The
+    platform verifies the code in one call and resets in another; here a
+    verified code is never a pass that can be spent separately.
+    """
+    _require_password_reset()
+    if not await auth_service.reset_password_with_code(
+        session,
+        email=payload.email,
+        code=payload.code,
+        new_password=payload.new_password,
+    ):
+        raise AppError("That code is wrong or has expired. Request a new one.")
+    user = await auth_service.get_user_by_email(session, payload.email)
+    await audit.record(
+        "auth.password_reset",
+        user=user,
+        target_type="user",
+        target_id=user.id if user else None,
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        data={"via": "emailed code"},
+    )
+    return MessageResponse(message="Password changed. Sign in with the new password.")
+
+
 @router.get("/me", response_model=UserProfile)
 async def me(session: SessionDep, user: CurrentUserDep) -> UserProfile:
     memberships = await auth_service.list_memberships(session, user.id)
+    active = await auth_service.resolve_active_workspace(session, user)
     return UserProfile(
+        active_workspace_id=active.id if active else None,
         **UserRead.model_validate(user, from_attributes=True).model_dump(),
         memberships=[
             MembershipRead(
@@ -115,12 +263,10 @@ async def update_me(
     payload: UserUpdate, session: SessionDep, user: CurrentUserDep
 ) -> UserProfile:
     changes = payload.model_dump(exclude_unset=True)
-    if "default_workspace_id" in changes and changes["default_workspace_id"] is not None:
-        membership = await auth_service.get_membership(
-            session, user_id=user.id, workspace_id=changes["default_workspace_id"]
-        )
-        if membership is None and not user.is_platform_admin:
-            raise ForbiddenError("You are not a member of that workspace")
+    workspace_id = changes.pop("default_workspace_id", None)
+    if workspace_id is not None:
+        # Same rule as POST /workspaces/{id}/activate.
+        await auth_service.activate_workspace(session, user, workspace_id)
     for field, value in changes.items():
         setattr(user, field, value)
     await session.commit()
@@ -139,18 +285,34 @@ async def change_password(
     )
 
 
-# --- platform-admin user management ------------------------------------------
+# --- superadmin user management ----------------------------------------------
 # Every account on the deployment, not scoped to any one workspace -- distinct
 # from GET /workspaces/{id}/members, which lists one workspace's roster.
 @router.get("/users", response_model=list[UserRead])
-async def list_all_users(session: SessionDep, _admin: PlatformAdminDep) -> list[User]:
+async def list_all_users(session: SessionDep, _admin: SuperadminDep) -> list[User]:
     rows = await session.execute(select(User).order_by(User.username))
     return list(rows.scalars().all())
 
 
+@router.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    payload: UserCreate, session: SessionDep, _admin: SuperadminDep
+) -> User:
+    return await auth_service.create_user(
+        session,
+        username=payload.username,
+        email=payload.email,
+        password=payload.password,
+        full_name=payload.full_name,
+        role=payload.role,
+        workspace_id=payload.workspace_id,
+        workspace_role=payload.workspace_role,
+    )
+
+
 @router.patch("/users/{user_id}", response_model=UserRead)
 async def admin_update_user(
-    user_id: int, payload: UserAdminUpdate, session: SessionDep, admin: PlatformAdminDep
+    user_id: int, payload: UserAdminUpdate, session: SessionDep, admin: SuperadminDep
 ) -> User:
     target = await auth_service.require_user(session, user_id)
     changes = payload.model_dump(exclude_unset=True)
@@ -160,6 +322,9 @@ async def admin_update_user(
     if "role" in changes and changes["role"] != target.role and target.id == admin.id:
         raise ForbiddenError("You cannot change your own platform role")
 
+    new_password = changes.pop("password", None)
+    if new_password is not None:
+        target.password_hash = security.hash_password(new_password)
     for field, value in changes.items():
         setattr(target, field, value.value if hasattr(value, "value") else value)
     await session.commit()
@@ -167,4 +332,8 @@ async def admin_update_user(
 
     if changes.get("is_active") is False:
         await auth_service.revoke_all_for_user(session, target.id, reason="deactivated")
+    elif new_password is not None:
+        await auth_service.revoke_all_for_user(
+            session, target.id, reason="password_reset"
+        )
     return target

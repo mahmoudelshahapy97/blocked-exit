@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- InsightEye — Blocked Exit Detection : development seed
 --
--- One demo workspace, one admin account inside it, four exits with a spread
+-- One demo workspace, one account per role inside it, four exits with a spread
 -- of states, plus enough event and alert history for the analytics pages to
 -- have something to aggregate. Timestamps are relative to now(), so the
 -- "last 24 hours" and "last 7 days" windows are populated whenever this is
@@ -17,7 +17,10 @@
 -- fabricated incident history; never load it into a database anyone relies
 -- on, and change the password immediately if you ever do.
 --
---   Login: demo.admin / ChangeMe123!
+--   Logins (all with password ChangeMe123!):
+--     demo.admin   superadmin, admin of the demo workspace
+--     demo.member  member  (runs cameras, acknowledges and resolves events)
+--     demo.viewer  viewer  (read-only)
 -- ---------------------------------------------------------------------------
 
 BEGIN;
@@ -30,25 +33,33 @@ ON CONFLICT (slug) DO UPDATE SET
     description = EXCLUDED.description,
     updated_at  = now();
 
--- --- admin user ----------------------------------------------------------------
+-- --- users -----------------------------------------------------------------------
 -- Password: ChangeMe123!  (argon2id hash below — regenerate with
 -- `python -c "from argon2 import PasswordHasher; print(PasswordHasher().hash('...'))"`
 -- if you want a different seeded password.)
 INSERT INTO app_user (username, email, full_name, password_hash, role, is_active, default_workspace_id)
 SELECT
-    'demo.admin', 'demo.admin@example.com', 'Demo Admin',
+    v.username, v.username || '@example.com', v.full_name,
     '$argon2id$v=19$m=65536,t=3,p=4$OYd43yT0KdsXT4UQSeJZdQ$sB6DzbM34JCPPynCkdykhnSKvenxqMHQiN7NAjL9juI',
-    'admin', TRUE, w.id
-FROM workspace w WHERE w.slug = 'demo'
+    v.role, TRUE, w.id
+FROM workspace w,
+     (VALUES ('demo.admin',  'Demo Admin',  'superadmin'),
+             ('demo.member', 'Demo Member', 'user'),
+             ('demo.viewer', 'Demo Viewer', 'user')) AS v (username, full_name, role)
+WHERE w.slug = 'demo'
 ON CONFLICT (username) DO UPDATE SET
     email      = EXCLUDED.email,
     full_name  = EXCLUDED.full_name,
+    role       = EXCLUDED.role,
     updated_at = now();
 
 INSERT INTO workspace_member (workspace_id, user_id, role)
-SELECT w.id, u.id, 'owner'
-FROM workspace w, app_user u
-WHERE w.slug = 'demo' AND u.username = 'demo.admin'
+SELECT w.id, u.id, v.ws_role
+FROM workspace w,
+     (VALUES ('demo.admin', 'admin'), ('demo.member', 'member'), ('demo.viewer', 'viewer'))
+         AS v (username, ws_role)
+     JOIN app_user u ON u.username = v.username
+WHERE w.slug = 'demo'
 ON CONFLICT (workspace_id, user_id) DO UPDATE SET role = EXCLUDED.role;
 
 -- --- cameras ---------------------------------------------------------------
@@ -117,6 +128,19 @@ ON CONFLICT (workspace_id, name) DO UPDATE SET
     clear_seconds = EXCLUDED.clear_seconds,
     process_fps   = EXCLUDED.process_fps,
     updated_at    = now();
+
+-- Where each exit is: location > area > building > floor_level > zone, so the
+-- hierarchy filters on Events and Analytics have something to cascade through.
+UPDATE camera c
+SET location = v.location, area = v.area, building = v.building,
+    floor_level = v.floor_level, zone = v.zone
+FROM workspace w, (VALUES
+    ('Exit A - Main Corridor',   'Cairo HQ', 'North campus', 'Building 1', '1', 'Main corridor'),
+    ('Exit B - Warehouse North', 'Cairo HQ', 'Logistics',    'Building 2', 'G', 'Loading dock'),
+    ('Exit C - Stairwell East',  'Cairo HQ', 'North campus', 'Building 1', '3', 'East stairwell'),
+    ('Exit D - Server Room',     'Giza DC',  'Data hall',    'Building 3', 'B1', 'Server room')
+) AS v(name, location, area, building, floor_level, zone)
+WHERE w.slug = 'demo' AND c.workspace_id = w.id AND c.name = v.name;
 
 -- --- clear previous seed history -------------------------------------------
 -- Only for the seeded cameras, so a database that also holds real events from
@@ -208,6 +232,53 @@ SELECT * FROM (VALUES
 -- A database seeded before the demo workspace/cameras exist would otherwise
 -- insert rows with a NULL camera_id and fail the FK with a confusing message.
 WHERE (SELECT a FROM ids) IS NOT NULL;
+
+-- Risk band and detection confidence, as the pipeline records them: the band
+-- of peak_risk_score (app/services/risk.py), and the peak / mean of the top
+-- blocking detection (the mean sits a little under the peak, as it does live).
+UPDATE blockage_event e
+SET risk_level = CASE
+        WHEN e.peak_state = 'FULL' AND e.peak_risk_score >= 60 THEN 'CRITICAL'
+        WHEN e.peak_risk_score >= 80 THEN 'CRITICAL'
+        WHEN e.peak_risk_score >= 55 THEN 'HIGH'
+        ELSE 'MEDIUM'
+    END,
+    confidence     = top.conf,
+    avg_confidence = round(top.conf * 0.93, 4)
+FROM (
+    SELECT e2.id, max((o ->> 'confidence')::numeric) AS conf
+    FROM blockage_event e2, jsonb_array_elements(e2.blocking_objects) AS o
+    GROUP BY e2.id
+) AS top, camera c, workspace w
+WHERE top.id = e.id AND c.id = e.camera_id AND w.id = c.workspace_id
+  AND w.slug = 'demo' AND c.name LIKE 'Exit % - %';
+
+-- Operator workflow, newest event first: the ongoing blockage and one old
+-- event nobody looked at are still 'detected'; one is acknowledged; the rest
+-- were resolved, with realistic delays for the response-time analytics.
+WITH ranked AS (
+    SELECT e.id, e.started_at,
+           row_number() OVER (ORDER BY e.started_at DESC) AS rn
+    FROM blockage_event e
+    JOIN camera c ON c.id = e.camera_id
+    JOIN workspace w ON w.id = c.workspace_id
+    WHERE w.slug = 'demo' AND c.name LIKE 'Exit % - %'
+)
+UPDATE blockage_event e
+SET status             = v.status,
+    acknowledged_at    = r.started_at + v.ack_after,
+    acknowledged_by_id = (SELECT id FROM app_user WHERE username = v.ack_by),
+    resolved_at        = r.started_at + v.resolve_after,
+    resolved_by_id     = (SELECT id FROM app_user WHERE username = v.resolve_by),
+    resolution_note    = v.note
+FROM ranked r, (VALUES
+    (2, 'resolved',     INTERVAL '3 minutes', 'demo.member', INTERVAL '14 minutes', 'demo.member', 'Chair returned to the meeting room'),
+    (3, 'acknowledged', INTERVAL '2 minutes', 'demo.member', NULL,                  NULL,          NULL),
+    (4, 'resolved',     INTERVAL '6 minutes', 'demo.member', INTERVAL '58 minutes', 'demo.admin',  'Refrigerator delivery rerouted to the loading dock'),
+    (5, 'resolved',     INTERVAL '4 minutes', 'demo.member', INTERVAL '22 minutes', 'demo.member', 'Luggage collected by its owner'),
+    (6, 'resolved',     INTERVAL '9 minutes', 'demo.admin',  INTERVAL '12 minutes', 'demo.admin',  'Bicycle moved to the rack')
+) AS v (rn, status, ack_after, ack_by, resolve_after, resolve_by, note)
+WHERE r.rn = v.rn AND e.id = r.id;
 
 -- --- alerts ----------------------------------------------------------------
 -- Attached to the events above rather than invented independently, so the

@@ -392,3 +392,62 @@ SELECT snapshot_path
 FROM blockage_event
 WHERE snapshot_path IS NOT NULL
 ORDER BY started_at DESC;
+
+
+-- ===========================================================================
+-- 5. The platform's charts (GET /api/v1/analytics/...)
+-- ===========================================================================
+-- Days and hours are local to REPORT_TIMEZONE (Africa/Cairo by default);
+-- swap the zone name to match the deployment's setting.
+
+-- 5.1 Incidents per exit, and how far operators got with them
+-- (/analytics/incidents-per-camera).
+SELECT c.name,
+       count(*)                                             AS incidents,
+       count(*) FILTER (WHERE e.acknowledged_at IS NOT NULL) AS acknowledged,
+       count(*) FILTER (WHERE e.status = 'resolved')         AS resolved
+FROM blockage_event e
+JOIN camera c ON c.id = e.camera_id
+GROUP BY c.id, c.name
+ORDER BY incidents DESC, c.name;
+
+-- 5.2 When exits get blocked: weekday (0 = Sunday) x local hour
+-- (/analytics/heatmap).
+SELECT extract(dow  FROM timezone('Africa/Cairo', started_at))::int AS weekday,
+       extract(hour FROM timezone('Africa/Cairo', started_at))::int AS hour,
+       count(*)                                                     AS incidents
+FROM blockage_event
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+-- 5.3 Time to acknowledge and to resolve, median and 90th percentile, per
+-- exit (/analytics/response-times). percentile_cont interpolates, so a p90
+-- over three values lands between the top two.
+SELECT c.name,
+       count(*)                                          AS incidents,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM e.acknowledged_at - e.started_at)) AS ack_median_s,
+       percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM e.acknowledged_at - e.started_at)) AS ack_p90_s,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM e.resolved_at - e.started_at))     AS resolve_median_s,
+       percentile_cont(0.9) WITHIN GROUP (ORDER BY extract(epoch FROM e.resolved_at - e.started_at))     AS resolve_p90_s,
+       count(*) FILTER (WHERE e.resolved_at IS NULL)     AS still_open
+FROM blockage_event e
+JOIN camera c ON c.id = e.camera_id
+GROUP BY c.id, c.name
+ORDER BY incidents DESC;
+
+-- 5.4 Confidence audit: incidents the detector was least sure about
+-- (/analytics/confidence-audit). "Low" is under CONF_THRESHOLD + 0.1.
+SELECT e.id, c.name, e.started_at, e.confidence, e.avg_confidence, e.status
+FROM blockage_event e
+JOIN camera c ON c.id = e.camera_id
+WHERE e.confidence < 0.35 + 0.1
+ORDER BY e.confidence, e.started_at DESC;
+
+-- 5.5 What blocks exits: episodes per object label (/analytics/breakdown).
+SELECT o ->> 'label'      AS object,
+       count(DISTINCT e.id) AS episodes
+FROM blockage_event e,
+     jsonb_array_elements(COALESCE(e.blocking_objects, '[]'::jsonb)) AS o
+GROUP BY 1
+ORDER BY episodes DESC, object
+LIMIT 10;

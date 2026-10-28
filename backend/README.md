@@ -70,6 +70,8 @@ app/
 │   ├── temporal.py        debounce/hysteresis state machine
 │   ├── risk.py            0–100 risk score
 │   ├── alerting.py        webhook + SMTP, duration gate, cooldown
+│   ├── auth.py            accounts, workspaces, tokens, password change/reset
+│   ├── otp.py             emailed password reset codes (HMAC, expiry, attempts)
 │   ├── annotator.py       explainable overlays
 │   ├── retention.py       expire old events, alerts and snapshots
 │   └── analytics.py       aggregation queries
@@ -107,22 +109,153 @@ Full stack in Docker instead: `docker compose up` (set `DATABASE_URL` to the
 > `DATABASE_URL` at the WSL IP instead — `wsl hostname -I` — or run the API in
 > compose too, where it reaches Postgres by service name.
 
+## Full stack from the repo root
+
+The root `docker-compose.yml` runs Postgres, the API and the web console
+together (containers `blocked_exit_postgres`, `blocked_exit_api`,
+`blocked_exit_web`):
+
+```bash
+cd /home/ubuntu/blocked-exit
+docker compose down
+docker compose up -d --build
+```
+
+| What | URL |
+|------|-----|
+| Web console | <http://localhost:8081> |
+| API (through the console's proxy) | <http://localhost:8081/api/v1> |
+| API (direct) | <http://localhost:8001/api/v1> · docs at `/docs` |
+| Postgres | `localhost:5433` |
+
+`down` keeps the `pgdata` volume, so accounts, cameras and events survive a
+rebuild. `down -v` wipes them.
+
+**First login.** A fresh database has no accounts, and the first signup
+becomes the superadmin (see below). The local stack was bootstrapped with the
+e2e suite's default account, so `e2e/run.sh` works without extra settings:
+
+| Username | Password | Role |
+|----------|----------|------|
+| `e2e.admin` | `E2e-Admin-Pass-1` | superadmin, workspace "Default" |
+
+Change that password, or make a separate superadmin, before anyone else can
+reach the console. To bootstrap an empty database yourself:
+
+```bash
+curl -X POST localhost:8081/api/v1/auth/signup -H "Content-Type: application/json" \
+  -d '{"username":"e2e.admin","email":"e2e.admin@example.com","password":"E2e-Admin-Pass-1","workspace_name":"Default"}'
+```
+
+**Test videos as cameras.** Compose mounts `backend/videos` read-only at
+`/app/videos` in the API container. A camera's source can be any clip there,
+and the clip loops forever (`LOOP_VIDEO_FILES=true`). The clips never go into
+the image: `.dockerignore` drops `*.mp4`, so a new clip in `backend/videos`
+needs no rebuild. On the Cameras page, or through the API:
+
+```bash
+curl -X POST localhost:8081/api/v1/cameras -H "$AUTH" -H "Content-Type: application/json" \
+  -d '{"name": "Exit A", "location": "Main exit", "rtsp_url": "/app/videos/5.mp4", "enabled": true}'
+```
+
+The local stack has these six demo cameras:
+
+| # | Camera | Source | Location |
+|---|--------|--------|----------|
+| 1 | Exit A | `/app/videos/5.mp4` | Main exit |
+| 2 | CCTV 1 | `/app/videos/cctv_video1.mp4` | Corridor |
+| 3 | CCTV 3 | `/app/videos/cctv_video3.mp4` | Corridor |
+| 4 | CCTV 20 | `/app/videos/cctv_video20.mp4` | Lobby |
+| 5 | Left Item 1 | `/app/videos/Left-Behined Item 0001.mp4` | Hall |
+| 6 | Normal 1 | `/app/videos/normal-1.mp4` | Side exit |
+
+None of them has an exit region yet, so each one treats the whole frame as the
+exit. Draw the door in the [zone editor](#draw-the-exit-region) for meaningful
+results. Alerts go nowhere until `ALERT_EMAIL_TO` or `WEBHOOK_URL` is set in
+`backend/.env`. Events still show up in the console.
+
+The stack runs YOLO on the GPU (see [Performance](#performance)). Measured on
+a Tesla T4 with 4 CPU cores, six cameras each hold the full `PROCESS_FPS=5`.
+That uses about 29% of the GPU, 800 MiB of GPU memory, and 1.3 CPU cores. On
+`DEVICE=cpu` the same six cameras reach only about 2 fps each and use all 4
+cores.
+
+> **API restarting and the console showing 502?** If `backend/data` is missing
+> when compose starts, Docker creates it owned by root. The API runs as
+> uid 1000 and then fails at startup with
+> `PermissionError: '/app/data/snapshots'`. Give the folder back and restart:
+>
+> ```bash
+> docker run --rm -v "$PWD/backend/data:/d" alpine:3 chown -R 1000:1000 /d
+> docker restart blocked_exit_api
+> ```
+
+## Accounts, roles and workspaces
+
+Same model as the InsightEye platform:
+
+- **No public signup.** The first account to sign up on a fresh database
+  (`POST /auth/signup`) becomes the **superadmin** and admin of the
+  "Default Workspace". After that, signup is closed (`GET /auth/bootstrap`
+  tells the login page) and a superadmin creates accounts
+  (`POST /auth/users`). `ALLOW_OPEN_SIGNUP=true` lets anyone sign up into the
+  shared Default Workspace as a member.
+- **System roles:** `superadmin` creates users and workspaces and manages
+  every roster; `admin` acts as a workspace admin wherever it is a member;
+  `user` gets its membership role.
+- **Workspace roles:** `viewer` reads everything; `member` also runs cameras
+  and acknowledges/resolves events; `admin` also draws exit regions, sends
+  test alerts and deletes event data. Every workspace keeps at least one admin.
+- **Active workspace.** Each user works in one workspace at a time, stored on
+  the server (`POST /workspaces/{id}/activate`), so every tab and every
+  request agrees. `GET /workspaces/active/permissions` says what the caller may
+  do there.
+
+Login takes a username or an email. Access tokens last 60 minutes; refresh
+tokens 14 days and rotate on every use. A password change or reset signs the
+user out everywhere.
+
+**Forgot your password?** Once `SMTP_HOST` is set, the login page offers a
+reset by emailed code (`GET /auth/bootstrap` reports `password_reset`):
+
+1. `POST /auth/forgot-password {"email"}` mails a 6-digit code. The answer is
+   the same whether or not the account exists, and the mail is sent after the
+   response, so neither tells an outsider who has an account.
+2. `POST /auth/reset-password {"email", "code", "new_password"}` checks the
+   code and sets the password in one step, then signs the account out
+   everywhere. There is no separate "verify" call whose success could be
+   spent later.
+
+Codes are stored only as an HMAC keyed with `SECRET_KEY` (table
+`password_otp`, one row per account). A code expires after `OTP_TTL_SECONDS`
+(10 min) and works once. Asking again within `OTP_RESEND_SECONDS` (60 s) sends
+nothing, a new code replaces the old one, and `OTP_MAX_ATTEMPTS` (5) wrong
+guesses burn it. Without SMTP both routes answer 503 and an admin resets
+passwords from the Users page.
+
 ## Register an exit and start monitoring
 
 `rtsp_url` also accepts a local video file, so the pipeline can be exercised
-without a camera.
+without a camera. In the root compose stack, use a path under `/app/videos`
+(see [Full stack from the repo root](#full-stack-from-the-repo-root)). Every route except health and the login/signup/refresh/
+bootstrap and password reset endpoints needs a bearer token.
 
 ```bash
-curl -X POST localhost:8000/api/v1/cameras -H "Content-Type: application/json" -d '{
+TOKEN=$(curl -s localhost:8000/api/v1/auth/login -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "..."}' | python -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+AUTH="Authorization: Bearer $TOKEN"
+
+curl -X POST localhost:8000/api/v1/cameras -H "$AUTH" -H "Content-Type: application/json" -d '{
   "name": "Exit A - Main Corridor",
-  "location": "Building 1, Floor 1",
+  "location": "Cairo HQ", "building": "Building 1", "floor_level": "1", "zone": "Main corridor",
   "rtsp_url": "rtsp://user:pass@10.0.0.5:554/stream1",
   "enabled": true
 }'
 
-curl -X POST localhost:8000/api/v1/monitoring/1/start
-curl localhost:8000/api/v1/monitoring/1/status
-curl localhost:8000/api/v1/monitoring/1/snapshot -o exit.jpg   # annotated frame
+curl -X POST localhost:8000/api/v1/monitoring/1/start -H "$AUTH"
+curl localhost:8000/api/v1/monitoring/1/status -H "$AUTH"
+curl localhost:8000/api/v1/monitoring/1/snapshot -H "$AUTH" -o exit.jpg   # annotated frame
+curl -X POST localhost:8000/api/v1/cameras/1/probe -H "$AUTH"           # test the connection
 ```
 
 Enabled cameras restart automatically when the API restarts.
@@ -173,18 +306,39 @@ ffmpeg -re -stream_loop -1 -i clip.mp4 -c copy -f rtsp rtsp://localhost:8554/exi
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health`, `/health/ready` | liveness; DB, models, per-worker health |
-| POST/GET/PATCH/DELETE | `/cameras`, `/cameras/{id}` | camera CRUD |
+| GET/POST | `/auth/bootstrap` · `/auth/signup` · `/auth/login` · `/auth/refresh` · `/auth/logout` | sessions (signup only while open) |
+| GET/PATCH/POST | `/auth/me` · `/auth/me/password` | the caller's profile, memberships and active workspace |
+| POST | `/auth/forgot-password` · `/auth/reset-password` | public: password reset by emailed code (needs SMTP) |
+| GET/POST/PATCH | `/auth/users`, `/auth/users/{id}` | superadmin: list, create, change role/active/password |
+| GET | `/workspaces` · `/workspaces/active` · `/workspaces/active/permissions` | the caller's workspaces, the active one, what they may do |
+| POST | `/workspaces/{id}/activate` | switch the active workspace |
+| POST/PATCH/DELETE | `/workspaces`, `/workspaces/{id}`, `/workspaces/{id}/deactivate` | superadmin: workspace lifecycle (delete needs deactivate first) |
+| GET/POST/PATCH/DELETE | `/workspaces/{id}/members[/{member_id}]` | roster (changes: superadmin) |
+| GET | `/workspaces/{id}/cameras` | a workspace's cameras, sources masked |
+| POST/GET/PATCH/DELETE | `/cameras`, `/cameras/{id}` | camera CRUD (location, area, building, floor_level, zone) |
+| GET | `/cameras/hierarchy` | distinct hierarchy values, cascading |
+| POST | `/cameras/{id}/probe` · `/cameras/probe-all` | connection test: reachable, latency, size, fps |
 | PUT | `/cameras/{id}/door-polygon` | set the exit region (pixels or normalized) |
 | GET | `/cameras/{id}/zone-editor` · `/calibration-frame` · `/door-polygon/preview` | draw the region, fetch a clean still, confirm what was stored |
 | POST | `/cameras/{id}/reference` | capture the unobstructed door (door-centric calibration) |
 | POST | `/monitoring/{id}/start` · `/stop` · `/restart` | worker lifecycle |
 | GET | `/monitoring/status` · `/monitoring/{id}/status` | live verdicts |
 | GET | `/monitoring/{id}/snapshot` · `/stream` | annotated JPEG / MJPEG |
-| GET | `/events`, `/events/{id}` | blockage history |
+| GET | `/events`, `/events/{id}`, `/events/{id}/snapshot`, `/events/overview` | blockage history (status, risk, sort, shared filters), evidence frame, dashboard counters |
+| POST | `/events/{id}/acknowledge` · `/events/{id}/resolve` | the detected → acknowledged → resolved workflow |
+| DELETE | `/events?<filters>` · `/events/all?confirm=true` | admin data delete (ongoing events are kept) |
 | GET/POST | `/alerts`, `/alerts/{id}/ack`, `/alerts/test` | alert log, acknowledge, delivery test |
 | GET | `/analytics/summary` · `/most-blocked` · `/{id}/timeline` · `/daily-report` | dashboard data |
+| GET | `/analytics/incidents-per-camera` · `/confidence-audit` · `/trend` · `/heatmap` · `/response-times` · `/breakdown` | the platform's charts |
 
-All under `/api/v1`. Set `API_KEY` in `.env` to require an `X-API-Key` header.
+All under `/api/v1`, all scoped to the caller's active workspace.
+
+**Shared filters.** The event list, data delete and every analytics endpoint
+take the same query parameters: `start_date`/`end_date` (days in
+`REPORT_TIMEZONE`, default Africa/Cairo), `start_time`/`end_time` (with a date
+on the same side, an exact bound; alone, a daily window that may wrap
+midnight), and comma-separated `camera_id`, `location`, `area`, `building`,
+`floor_level`, `zone` (OR within a parameter, AND across them).
 
 ## Tuning
 
@@ -216,7 +370,7 @@ to name the obstacles — the verdict still comes from the door geometry.
 ## Performance
 
 Measured here on CPU (no usable GPU): **~3.2 fps, 256 ms/frame** with
-`yolo11n-seg` at 640px, one camera, `PROCESS_FPS=4`. That is ample — exits are
+`yolo26n-seg` at 640px, one camera, `PROCESS_FPS=4`. That is ample — exits are
 monitored at a few frames per second, not 30.
 
 For edge deployment, the paper reports large gains from exporting the model
@@ -224,11 +378,29 @@ For edge deployment, the paper reports large gains from exporting the model
 mAP50-95 unchanged):
 
 ```bash
-yolo export model=models/yolo11n-seg.pt format=openvino
+yolo export model=models/yolo26n-seg.pt format=openvino
 # then set MODEL_PATH / SEG_MODEL_PATH to the exported directory
 ```
 
-CUDA is only worth it with a modern GPU — set `DEVICE=cuda`.
+**GPU.** The root `docker-compose.yml` runs on the NVIDIA GPU by default. It
+builds the image with CUDA torch (`TORCH_INDEX_URL`, default the cu126 wheel
+index), reserves the GPU under `deploy.resources`, and sets `DEVICE=cuda`,
+which overrides `backend/.env`. The host needs the NVIDIA driver and the NVIDIA
+Container Toolkit (`docker info` lists an `nvidia` runtime). The CUDA image is
+about 12GB, against about 3GB for the CPU one, so leave room on disk for the
+build. Check that it took:
+
+```bash
+docker exec blocked_exit_api python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+curl -s localhost:8081/api/v1/health    # "device": "cuda"
+nvidia-smi                              # the api's python process holds GPU memory
+```
+
+For a CPU-only host, build with
+`TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu`, set `DEVICE=cpu`, and
+remove the GPU reservation. Without it, the API container starts with no GPU
+and fails at its first inference. A bare `docker build` of `backend/` still
+produces the CPU image.
 
 ## Running in production
 
@@ -252,7 +424,7 @@ What changes when `ENV=production`:
 | | Behaviour |
 |---|---|
 | `AUTO_CREATE_TABLES=true` or `DEBUG=true` | **startup fails** — both let the app quietly diverge from what Alembic and your logs say is running |
-| `CORS_ORIGINS=*`, no `API_KEY` | warned at startup, not blocked; set both unless a gateway handles them |
+| `CORS_ORIGINS=*` | warned at startup, not blocked; set it unless a gateway handles it |
 | `/docs`, `/redoc`, `/openapi.json` | off (`ENABLE_DOCS=true` re-enables) |
 
 Other operational behaviour, all configurable in `.env`:
@@ -281,10 +453,25 @@ lives in `requirements-dev.txt` and is not installed into the image.
 
 ```bash
 pip install -r requirements-dev.txt
-pytest
+pytest                                   # unit tests; tests/db is skipped
+
+# Postgres-backed suite: a database it may drop and recreate
+docker compose up -d postgres
+# (POSTGRES_PORT from .env; 5433 when using the root docker-compose.yml)
+TEST_DATABASE_URL=postgresql+asyncpg://insighteye:insighteye@localhost:5432/blocked_exit_test pytest
 ```
 
-127 tests, none of which need weights, a database or a network: occupancy math
+`tests/db` (marked `db`) migrates a fresh database with Alembic and drives the
+real app over HTTP: bootstrap signup and closed signup, superadmin-only
+tenancy, workspace activation and the role matrix, the shared filters
+(timezone day boundaries, daily windows across midnight, comma lists),
+connection probes, data delete safety, password reset by emailed code
+(single use, expiry, resend window, attempt limit, no account oracle), the
+event lifecycle and the pipeline
+writing risk and confidence, and every analytics endpoint against
+hand-computed answers.
+
+The unit tests need no weights, database or network: occupancy math
 on synthetic masks, the temporal state machine (driven by a fake clock, so no
 sleeping), risk bands, alert gating and delivery failure, the zone-based
 strategy against a stubbed detector, pixel↔normalized polygon conversion,

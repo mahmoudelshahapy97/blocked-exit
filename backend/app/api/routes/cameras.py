@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+import asyncio
+
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func, select
 
@@ -20,30 +22,35 @@ from app.core.redaction import redact_url
 from app.models.camera import Camera
 from app.schemas.camera import (
     CameraCreate,
+    CameraHierarchy,
     CameraRead,
     CameraUpdate,
     DoorPolygonUpdate,
+    ProbeResult,
     ReferenceCaptureResponse,
 )
-from app.services import annotator
+from app.services import annotator, probe
 from app.services.detector.door_centric import capture_reference
+from app.services.filters import csv_values
 from app.utils.image import encode_jpeg
 from app.utils.timing import utcnow
 from app.utils.video import grab_single_frame
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
-# Every route needs at least a viewer in the resolved workspace; writes
-# additionally require OperatorDep below.
+# Every route needs at least a viewer in the active workspace. Camera writes
+# need a member; drawing the exit region is a workspace admin's call, as on the
+# platform (PUT /blocked-exit/cameras/{id}/polygon).
 ViewerDep = Depends(require_workspace_role(WorkspaceRole.VIEWER))
-OperatorDep = Depends(require_workspace_role(WorkspaceRole.OPERATOR))
+MemberDep = Depends(require_workspace_role(WorkspaceRole.MEMBER))
+AdminDep = Depends(require_workspace_role(WorkspaceRole.ADMIN))
 
 
 @router.post(
     "",
     response_model=CameraRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[OperatorDep],
+    dependencies=[MemberDep],
 )
 async def create_camera(
     payload: CameraCreate, ctx: WorkspaceDep, session: SessionDep, manager: ManagerDep
@@ -75,24 +82,99 @@ async def create_camera(
     return camera
 
 
+def _read(camera: Camera, ctx: WorkspaceDep) -> CameraRead:
+    """A viewer sees where a camera is, never the credentials in its URL --
+    only members, who can edit the camera, need the URL as entered."""
+    read = CameraRead.model_validate(camera)
+    if not ctx.role.can_act_as(WorkspaceRole.MEMBER):
+        read.rtsp_url = read.source_host
+    return read
+
+
 @router.get("", response_model=list[CameraRead], dependencies=[ViewerDep])
 async def list_cameras(
     ctx: WorkspaceDep, session: SessionDep, enabled: bool | None = None
-) -> list[Camera]:
+) -> list[CameraRead]:
     query = (
         select(Camera).where(Camera.workspace_id == ctx.workspace.id).order_by(Camera.id)
     )
     if enabled is not None:
         query = query.where(Camera.enabled.is_(enabled))
-    return list((await session.execute(query)).scalars().all())
+    return [_read(c, ctx) for c in (await session.execute(query)).scalars()]
+
+
+@router.get("/hierarchy", response_model=CameraHierarchy, dependencies=[ViewerDep])
+async def camera_hierarchy(
+    ctx: WorkspaceDep,
+    session: SessionDep,
+    location: str | None = Query(None, description="Comma-separated"),
+    area: str | None = Query(None, description="Comma-separated"),
+    building: str | None = Query(None, description="Comma-separated"),
+    floor_level: str | None = Query(None, description="Comma-separated"),
+) -> CameraHierarchy:
+    """The values each hierarchy level takes in this workspace, each narrowed
+    by the levels chosen above it -- feeds the cascading filter selects (the
+    platform's locations/areas/buildings/floor-levels/zones list endpoints)."""
+    chosen = {
+        "location": csv_values(location),
+        "area": csv_values(area),
+        "building": csv_values(building),
+        "floor_level": csv_values(floor_level),
+    }
+    levels = ("location", "area", "building", "floor_level", "zone")
+
+    async def distinct(level: str) -> list[str]:
+        column = getattr(Camera, level)
+        parents = levels[: levels.index(level)]
+        query = (
+            select(column)
+            .where(
+                Camera.workspace_id == ctx.workspace.id,
+                column.is_not(None),
+                *[getattr(Camera, p).in_(chosen[p]) for p in parents if chosen[p]],
+            )
+            .distinct()
+            .order_by(column)
+        )
+        return list((await session.execute(query)).scalars())
+
+    return CameraHierarchy(
+        locations=await distinct("location"),
+        areas=await distinct("area"),
+        buildings=await distinct("building"),
+        floor_levels=await distinct("floor_level"),
+        zones=await distinct("zone"),
+    )
+
+
+@router.post("/probe-all", response_model=list[ProbeResult], dependencies=[MemberDep])
+async def probe_all_cameras(ctx: WorkspaceDep, session: SessionDep) -> list[ProbeResult]:
+    """Test the connection to every camera in the workspace. Runs concurrently,
+    but the probe service caps how many sources are opened at once."""
+    query = select(Camera).where(Camera.workspace_id == ctx.workspace.id)
+    cameras = (await session.execute(query.order_by(Camera.id))).scalars().all()
+
+    async def one(camera: Camera) -> ProbeResult:
+        result = await probe.probe(camera.rtsp_url)
+        return ProbeResult(camera_id=camera.id, camera_name=camera.name, **result)
+
+    return list(await asyncio.gather(*(one(c) for c in cameras)))
 
 
 @router.get("/{camera_id}", response_model=CameraRead, dependencies=[ViewerDep])
-async def get_camera(camera: CameraDep) -> Camera:
-    return camera
+async def get_camera(camera: CameraDep, ctx: WorkspaceDep) -> CameraRead:
+    return _read(camera, ctx)
 
 
-@router.patch("/{camera_id}", response_model=CameraRead, dependencies=[OperatorDep])
+@router.post("/{camera_id}/probe", response_model=ProbeResult, dependencies=[MemberDep])
+async def probe_camera(camera: CameraDep) -> ProbeResult:
+    """Open the camera's source and read one frame, without starting a worker:
+    reachable, how long it took, and the resolution and frame rate it reports."""
+    result = await probe.probe(camera.rtsp_url)
+    return ProbeResult(camera_id=camera.id, camera_name=camera.name, **result)
+
+
+@router.patch("/{camera_id}", response_model=CameraRead, dependencies=[MemberDep])
 async def update_camera(
     payload: CameraUpdate, camera: CameraDep, session: SessionDep, manager: ManagerDep
 ) -> Camera:
@@ -109,7 +191,7 @@ async def update_camera(
 
 
 @router.delete(
-    "/{camera_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[OperatorDep]
+    "/{camera_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[MemberDep]
 )
 async def delete_camera(
     camera: CameraDep, session: SessionDep, manager: ManagerDep
@@ -192,7 +274,7 @@ async def preview_door_polygon(camera: CameraDep, manager: ManagerDep) -> Respon
 
 
 @router.put(
-    "/{camera_id}/door-polygon", response_model=CameraRead, dependencies=[OperatorDep]
+    "/{camera_id}/door-polygon", response_model=CameraRead, dependencies=[AdminDep]
 )
 async def set_door_polygon(
     payload: DoorPolygonUpdate,
@@ -215,7 +297,7 @@ async def set_door_polygon(
 @router.post(
     "/{camera_id}/reference",
     response_model=ReferenceCaptureResponse,
-    dependencies=[OperatorDep],
+    dependencies=[AdminDep],
 )
 async def capture_reference_door(
     camera: CameraDep, session: SessionDep, manager: ManagerDep

@@ -146,7 +146,7 @@ async def test_a_failing_channel_is_recorded_not_raised(monkeypatch):
     """The pipeline keeps running even when every delivery route is broken."""
     recorded: list = []
 
-    async def boom(channel, payload, snapshot):
+    async def boom(channel, payload, snapshot, recipients=None):
         raise RuntimeError("smtp is on fire")
 
     class FakeSession:

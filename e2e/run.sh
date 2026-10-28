@@ -40,6 +40,7 @@ docker volume create blocked-exit-e2e-node-modules >/dev/null
 docker run --rm \
   --network host \
   -e BASE_URL="${BASE_URL}" \
+  -e MAILPIT_URL="${MAILPIT_URL:-}" \
   -e CI=1 \
   -v "${HERE}:/e2e" \
   -v blocked-exit-e2e-node-modules:/e2e/node_modules \

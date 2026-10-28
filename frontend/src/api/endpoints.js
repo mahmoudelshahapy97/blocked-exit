@@ -1,4 +1,4 @@
-import client, { fetchImageObjectUrl, mediaUrl } from "./client";
+import client, { API_BASE, fetchImageObjectUrl, mediaUrl } from "./client";
 
 /** One function per backend route, so no component builds a URL by hand. */
 
@@ -10,6 +10,7 @@ export const health = {
 
 // --- auth -------------------------------------------------------------------
 export const auth = {
+  bootstrap: (opts) => client.get("/auth/bootstrap", opts).then((r) => r.data),
   signup: (payload) => client.post("/auth/signup", payload).then((r) => r.data),
   login: (payload) => client.post("/auth/login", payload).then((r) => r.data),
   refresh: (refreshToken) =>
@@ -19,20 +20,36 @@ export const auth = {
   me: (opts) => client.get("/auth/me", opts).then((r) => r.data),
   updateMe: (payload) => client.patch("/auth/me", payload).then((r) => r.data),
   changePassword: (payload) => client.post("/auth/me/password", payload),
+  // "Forgot your password?": mail a code, then spend it on a new password.
+  forgotPassword: (email) =>
+    client.post("/auth/forgot-password", { email }).then((r) => r.data),
+  resetPassword: ({ email, code, newPassword }) =>
+    client
+      .post("/auth/reset-password", { email, code, new_password: newPassword })
+      .then((r) => r.data),
 
-  // Platform-admin only.
+  // Superadmin only.
   listUsers: (opts) => client.get("/auth/users", opts).then((r) => r.data),
+  createUser: (payload) => client.post("/auth/users", payload).then((r) => r.data),
   updateUser: (userId, payload) =>
     client.patch(`/auth/users/${userId}`, payload).then((r) => r.data),
 };
 
 // --- workspaces -------------------------------------------------------------
 export const workspaces = {
-  list: (opts) => client.get("/workspaces", opts).then((r) => r.data),
+  list: (params, opts) => client.get("/workspaces", { params, ...opts }).then((r) => r.data),
+  active: (opts) => client.get("/workspaces/active", opts).then((r) => r.data),
+  permissions: (opts) => client.get("/workspaces/active/permissions", opts).then((r) => r.data),
+  activate: (id) => client.post(`/workspaces/${id}/activate`).then((r) => r.data),
   get: (id, opts) => client.get(`/workspaces/${id}`, opts).then((r) => r.data),
+  cameras: (id, opts) => client.get(`/workspaces/${id}/cameras`, opts).then((r) => r.data),
+  members: (id, opts) => client.get(`/workspaces/${id}/members`, opts).then((r) => r.data),
+
+  // Superadmin only.
   create: (payload) => client.post("/workspaces", payload).then((r) => r.data),
   update: (id, payload) => client.patch(`/workspaces/${id}`, payload).then((r) => r.data),
-  members: (id, opts) => client.get(`/workspaces/${id}/members`, opts).then((r) => r.data),
+  deactivate: (id) => client.post(`/workspaces/${id}/deactivate`).then((r) => r.data),
+  remove: (id) => client.delete(`/workspaces/${id}`),
   addMember: (id, payload) =>
     client.post(`/workspaces/${id}/members`, payload).then((r) => r.data),
   updateMember: (id, memberId, role) =>
@@ -47,6 +64,11 @@ export const cameras = {
   create: (payload) => client.post("/cameras", payload).then((r) => r.data),
   update: (id, payload) => client.patch(`/cameras/${id}`, payload).then((r) => r.data),
   remove: (id) => client.delete(`/cameras/${id}`).then((r) => r.data),
+  /** Distinct location/area/building/floor/zone values, narrowed by `params`. */
+  hierarchy: (params, opts) =>
+    client.get("/cameras/hierarchy", { params, ...opts }).then((r) => r.data),
+  probe: (id) => client.post(`/cameras/${id}/probe`).then((r) => r.data),
+  probeAll: () => client.post("/cameras/probe-all").then((r) => r.data),
 
   /**
    * A clean frame plus the pixel size it was captured at. The size is the
@@ -122,7 +144,24 @@ export const monitoring = {
 // --- events ---------------------------------------------------------------
 export const events = {
   list: (params, opts) => client.get("/events", { params, ...opts }).then((r) => r.data),
+  /** The list's filters as a CSV download (a Blob, so the token stays in the header). */
+  exportBlob: (params) =>
+    client.get("/events/export.csv", { params, responseType: "blob" }).then((r) => r.data),
   get: (id) => client.get(`/events/${id}`).then((r) => r.data),
+  overview: (opts) => client.get("/events/overview", opts).then((r) => r.data),
+  /** Object URL of the event's snapshot; the caller revokes it. */
+  snapshot: (id, opts) => fetchImageObjectUrl(`/events/${id}/snapshot`, opts),
+  // Members and up.
+  acknowledge: (id, note) =>
+    client.post(`/events/${id}/acknowledge`, { note: note || undefined }).then((r) => r.data),
+  resolve: (id, note) =>
+    client
+      .post(`/events/${id}/resolve`, { status: "resolved", note: note || undefined })
+      .then((r) => r.data),
+  // Workspace admins only. `remove` needs at least one filter.
+  remove: (params) => client.delete("/events", { params }).then((r) => r.data),
+  removeAll: () =>
+    client.delete("/events/all", { params: { confirm: true } }).then((r) => r.data),
 };
 
 // --- alerts ---------------------------------------------------------------
@@ -141,19 +180,36 @@ export const alerts = {
 
 // --- analytics ------------------------------------------------------------
 export const analytics = {
-  summary: (days = 7, opts) =>
-    client.get("/analytics/summary", { params: { days }, ...opts }).then((r) => r.data),
+  summary: (days = 7, opts, filters = {}) =>
+    client
+      .get("/analytics/summary", { params: { days, ...filters }, ...opts })
+      .then((r) => r.data),
   mostBlocked: (days = 7, limit = 10, opts) =>
     client
       .get("/analytics/most-blocked", { params: { days, limit }, ...opts })
       .then((r) => r.data),
-  dailyReport: (reportDate, opts) =>
+  dailyReport: (reportDate, opts, filters = {}) =>
     client
       .get("/analytics/daily-report", {
-        params: reportDate ? { report_date: reportDate } : {},
+        params: { ...filters, ...(reportDate ? { report_date: reportDate } : {}) },
         ...opts,
       })
       .then((r) => r.data),
+  // The platform's charts; `filters` is the EventFilterBar value.
+  incidentsPerCamera: (filters, opts) =>
+    client.get("/analytics/incidents-per-camera", { params: filters, ...opts }).then((r) => r.data),
+  confidenceAudit: (filters, opts) =>
+    client.get("/analytics/confidence-audit", { params: filters, ...opts }).then((r) => r.data),
+  trend: (filters, bucket, opts) =>
+    client
+      .get("/analytics/trend", { params: { ...filters, ...(bucket ? { bucket } : {}) }, ...opts })
+      .then((r) => r.data),
+  heatmap: (filters, opts) =>
+    client.get("/analytics/heatmap", { params: filters, ...opts }).then((r) => r.data),
+  responseTimes: (filters, opts) =>
+    client.get("/analytics/response-times", { params: filters, ...opts }).then((r) => r.data),
+  breakdown: (filters, opts) =>
+    client.get("/analytics/breakdown", { params: filters, ...opts }).then((r) => r.data),
   timeline: (cameraId, days = 7, limit = 200, opts) =>
     client
       .get(`/analytics/${cameraId}/timeline`, { params: { days, limit }, ...opts })
@@ -161,3 +217,31 @@ export const analytics = {
 };
 
 export default { health, auth, workspaces, cameras, monitoring, events, alerts, analytics };
+
+// --- notifications ----------------------------------------------------------
+// Addressed to the account, not the active workspace: the bell lists every
+// workspace the caller can see, and each row names its own.
+export const notifications = {
+  /** {unread_only, kind, workspace_id, limit, offset} -> {items, total, unread}. */
+  list: (params, opts) => client.get("/notifications", { params, ...opts }).then((r) => r.data),
+  unreadCount: (opts) => client.get("/notifications/unread-count", opts).then((r) => r.data.unread),
+  /** The listed ids, or every unread one when none are given. -> {marked, unread} */
+  markRead: (ids) =>
+    client.post("/notifications/read", ids ? { notification_ids: ids } : {}).then((r) => r.data),
+  markUnread: (id) => client.delete(`/notifications/${id}/read`).then((r) => r.data),
+  /** A "system" notification to yourself, to check the bell and the socket end to end. */
+  sendTest: () => client.post("/notifications/test").then((r) => r.data),
+  /** ws(s)://<host>/api/v1/notifications/ws; the token goes in the first message. */
+  socketUrl: () => {
+    const base = new URL(API_BASE, window.location.href).toString().replace(/\/$/, "");
+    return `${base.replace(/^http/, "ws")}/notifications/ws`;
+  },
+};
+
+// --- audit log ----------------------------------------------------------------
+export const audit = {
+  /** {action, actor, since, until, limit, offset} -> {items, total}. Admins only. */
+  list: (params, opts) => client.get("/audit-logs", { params, ...opts }).then((r) => r.data),
+  exportBlob: (params) =>
+    client.get("/audit-logs/export.csv", { params, responseType: "blob" }).then((r) => r.data),
+};

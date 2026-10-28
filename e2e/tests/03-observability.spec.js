@@ -1,5 +1,12 @@
-import { expect, test } from "@playwright/test";
-import { API, CAMERA_NAME, collectPageProblems, findCamera, waitForApi } from "./helpers.js";
+import {
+  API,
+  CAMERA_NAME,
+  collectPageProblems,
+  expect,
+  findCamera,
+  test,
+  waitForApi,
+} from "./helpers.js";
 
 /**
  * What the running worker from spec 02 produced, read back through every
@@ -26,7 +33,7 @@ test("the dashboard shows the monitored exit as a live card", async ({ page, req
   // "Not monitored" placeholder.
   const card = page.locator(`a[href="/cameras/${camera.id}"]`).first();
   await expect(card).toBeVisible();
-  await expect(card).toContainText(/CLEAR|PARTIAL|FULL/, { timeout: 30_000 });
+  await expect(card).toContainText(/clear|partial|full/i, { timeout: 30_000 });
   await expect(card).toContainText(/%/);
 
   expect(problems, problems.join("\n")).toEqual([]);
@@ -55,8 +62,9 @@ test("the event log renders, filters, and agrees with the API", async ({ page, r
 
   // Filter to our exit. The count the page prints is the assertion target,
   // because it comes from the same payload the table renders.
-  await page.getByRole("combobox", { name: "Exit" }).click();
+  await page.getByRole("combobox", { name: "Exits" }).click();
   await page.getByRole("option", { name: CAMERA_NAME }).click();
+  await page.keyboard.press("Escape"); // the exits picker is multi-select
   await expect(page.getByText(new RegExp(`^${api.total} events?$`))).toBeVisible({ timeout: 20_000 });
 
   if (api.total === 0) {
@@ -67,18 +75,53 @@ test("the event log renders, filters, and agrees with the API", async ({ page, r
     const first = api.items[0];
     const row = page.getByRole("row").filter({ hasText: String(first.id) }).first();
     await expect(row).toBeVisible();
-    await expect(row).toContainText(/CLEAR|PARTIAL|FULL/);
+    await expect(row).toContainText(/clear|partial|full/i);
     // An event carries the measurement that opened it.
     expect(first.min_accessibility_pct).toBeGreaterThanOrEqual(0);
     expect(first.camera_id).toBe(camera.id);
   }
 
   // "Still open only" is a server-side filter; it must never widen the set.
-  await page.getByRole("checkbox", { name: "Still open only" }).check();
+  await page.getByRole("checkbox", { name: "Still blocked only" }).check();
   const openOnly = await (
     await request.get(`${API}/events?camera_id=${camera.id}&open_only=true`)
   ).json();
   expect(openOnly.total).toBeLessThanOrEqual(api.total);
+
+  expect(problems, problems.join("\n")).toEqual([]);
+});
+
+test("an event can be acknowledged and resolved from the console", async ({ page, request }) => {
+  const problems = collectPageProblems(page);
+  const camera = await findCamera(request);
+  const open = await (
+    await request.get(`${API}/events?camera_id=${camera.id}&status=detected&limit=1`)
+  ).json();
+  test.skip(open.total === 0, "the clip produced no unacknowledged event");
+  const event = open.items[0];
+
+  await page.goto(`/events?camera_id=${camera.id}`);
+  await page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: String(event.id), exact: true }) })
+    .click();
+  const drawer = page.getByRole("presentation").filter({ hasText: `Event #${event.id}` });
+  await expect(drawer).toBeVisible();
+
+  await drawer.getByRole("button", { name: "Acknowledge" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Acknowledge" }).click();
+  await expect(drawer.getByText("acknowledged", { exact: true })).toBeVisible();
+
+  await drawer.getByRole("button", { name: "Resolve" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Resolution note").fill("Cleared by the e2e suite");
+  await dialog.getByRole("button", { name: "Resolve" }).click();
+  await expect(drawer.getByText("Cleared by the e2e suite")).toBeVisible();
+
+  const after = await (await request.get(`${API}/events/${event.id}`)).json();
+  expect(after.status).toBe("resolved");
+  expect(after.acknowledged_by).toBeTruthy();
+  expect(after.resolved_at >= after.acknowledged_at).toBeTruthy();
 
   expect(problems, problems.join("\n")).toEqual([]);
 });
@@ -133,13 +176,13 @@ test("analytics aggregates the window and the timeline", async ({ page, request 
 
   await page.goto("/analytics");
   await expect(page.getByRole("heading", { name: /^Analytics$/, level: 5 })).toBeVisible();
-  await expect(page.getByText("Events").first()).toBeVisible();
-  await expect(page.getByText(/still open/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("Incidents").first()).toBeVisible();
+  await expect(page.getByText(/still blocked/i).first()).toBeVisible({ timeout: 20_000 });
 
-  // Changing the window re-queries rather than re-rendering stale numbers.
-  await page.getByRole("combobox", { name: "Window" }).click();
-  await page.getByRole("option", { name: /30/ }).first().click();
-  await expect(page.getByText(/still open/i).first()).toBeVisible({ timeout: 20_000 });
+  // A quick range sets the shared date filter in the URL and re-queries.
+  await page.getByRole("button", { name: "30 days" }).click();
+  await expect(page).toHaveURL(/start_date=/);
+  await expect(page.getByText(/still blocked/i).first()).toBeVisible({ timeout: 20_000 });
 
   const timeline = await request.get(`${API}/analytics/${camera.id}/timeline?days=7`);
   expect(timeline.ok(), `timeline -> ${timeline.status()}`).toBeTruthy();
@@ -163,4 +206,31 @@ test("the worker keeps producing verdicts over time", async ({ request }) => {
     { timeout: 60_000, interval: 3000 }
   );
   expect(later.worker_state).toBe("running");
+});
+
+test("every analytics tab renders against the shared filters", async ({ page, request }) => {
+  const problems = collectPageProblems(page);
+  const camera = await findCamera(request);
+
+  // The filters are query parameters, so a tab is reachable as a link.
+  await page.goto(`/analytics?camera_id=${camera.id}`);
+  for (const [tab, marker] of [
+    ["Overview", /incidents over time/i],
+    ["Incidents per exit", /incidents per exit|nothing to show/i],
+    ["Response times", /time to acknowledge/i],
+    ["Blocked time", /blocked time per exit|nothing to show/i],
+    ["Confidence audit", /mean confidence/i],
+    ["Daily report", /daily report/i],
+  ]) {
+    await page.getByRole("tab", { name: tab }).click();
+    await expect(page.getByText(marker).first()).toBeVisible({ timeout: 20_000 });
+  }
+  await expect(page).toHaveURL(new RegExp(`camera_id=${camera.id}`));
+
+  for (const path of ["incidents-per-camera", "confidence-audit", "trend", "heatmap", "response-times", "breakdown"]) {
+    const response = await request.get(`${API}/analytics/${path}?camera_id=${camera.id}`);
+    expect(response.ok(), `${path} -> ${response.status()}`).toBeTruthy();
+  }
+
+  expect(problems, problems.join("\n")).toEqual([]);
 });

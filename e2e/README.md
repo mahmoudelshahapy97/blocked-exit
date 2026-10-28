@@ -35,11 +35,30 @@ To run against a different origin (a staging deploy, or the Vite dev server on
 BASE_URL=http://localhost:5173 ./e2e/run.sh
 ```
 
+## Signing in
+
+Every spec runs signed in as `E2E_USERNAME` / `E2E_PASSWORD` (default
+`e2e.admin` / `E2e-Admin-Pass-1`). On an empty database the suite creates that
+account itself through the bootstrap signup, which makes it the superadmin.
+On a database that already has accounts, signup is closed: point the two
+variables at an existing superadmin.
+
+```bash
+E2E_USERNAME=demo.admin E2E_PASSWORD='ChangeMe123!' ./e2e/run.sh
+```
+
+`tests/helpers.js` gives each test a fresh token pair: the API `request`
+fixture carries the access token, and the browser starts with the refresh
+token in localStorage, the way a reloaded tab resumes. Refresh tokens rotate
+on use, so a session saved once and shared between tests would stop working
+after the first one.
+
 ## The test clip
 
 `backend/data/5.mp4` is bind-mounted into the api container at
 `/app/data/5.mp4`, and that path is what the suite registers as the camera's
-stream source. The backend accepts a local file anywhere it accepts an RTSP
+stream source. `data/` is not in git: copy the clip in first (it ships with
+the InsightEye backend as `videos/5.mp4`). The backend accepts a local file anywhere it accepts an RTSP
 URL, so no camera and no RTSP server are needed. `LOOP_VIDEO_FILES=true` means
 the clip restarts rather than ending the worker.
 
@@ -56,8 +75,14 @@ takes it back down.
 | --- | --- |
 | `01-shell.spec.js` | health and readiness, every route, the nav, the 404 page, the legacy `/zones` redirect, the theme toggle |
 | `02-camera-lifecycle.spec.js` | form validation, registering an exit against the clip, grabbing a calibration frame, drawing and saving the polygon, starting the worker, the live view, the list joining record with status |
-| `03-observability.spec.js` | dashboard cards, `/monitoring/status`, the event log and its filters, the alert log, `/alerts/test`, the analytics roll-up, and that the worker keeps advancing |
+| `03-observability.spec.js` | dashboard cards, `/monitoring/status`, the event log and its filters, acknowledging and resolving an event from its drawer (skipped when the clip produced no event), the alert log, `/alerts/test`, the analytics roll-up and every analytics tab, and that the worker keeps advancing |
 | `04-teardown.spec.js` | editing an exit, acknowledging an alert, stopping the worker, deleting the camera |
+| `05-tenancy.spec.js` | a superadmin creating a workspace and a viewer from the console, closed signup, the viewer's read-only console, switching the active workspace, deactivating and deleting the workspace |
+| `06-password-reset.spec.js` | "Forgot your password?" from the login page, the emailed code (read from Mailpit), a wrong code refused, the new password working and the old one not, and an unknown email getting the same answer with no mail. Skipped unless the API has `SMTP_HOST` set and `MAILPIT_URL` points at the inbox (see below) |
+
+To run 06, point the API's SMTP at a [Mailpit](https://mailpit.axllent.org)
+container (`SMTP_HOST=mailpit`, `SMTP_PORT=1025`, `SMTP_USE_TLS=false`) and
+pass its API address to the suite, e.g. `MAILPIT_URL=http://localhost:8025`.
 
 Assertions cross-check the UI against the API rather than trusting either
 alone: the console can render a stale number, and the API can be right about

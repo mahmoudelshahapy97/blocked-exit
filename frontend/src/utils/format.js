@@ -1,6 +1,7 @@
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import utc from "dayjs/plugin/utc";
+import i18n from "i18next";
 
 dayjs.extend(relativeTime);
 dayjs.extend(utc);
@@ -63,3 +64,17 @@ export function summarizeObjects(objects, max = 2) {
   const rest = labels.length - max;
   return rest > 0 ? `${shown} +${rest}` : shown;
 }
+
+/**
+ * An enum code as words: "FALSE_POSITIVE" -> "False Positive". Codes have
+ * their own entries under "enum" in the locale files; English falls back to
+ * the title-cased code.
+ */
+export const titleCase = (value) => {
+  if (!value) return "—";
+  const english = String(value)
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return i18n.t(`enum.${value}`, { defaultValue: english });
+};

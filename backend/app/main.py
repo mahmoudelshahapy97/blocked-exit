@@ -16,7 +16,9 @@ from app.core.config import settings
 from app.core.database import dispose_engine, init_models
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
-from app.services import alerting, model_loader, retention
+from app.core.observability import RequestIdMiddleware
+from app.services import alerting, camera_health, model_loader, retention
+from app.services.audit import AuditMiddleware
 from app.services.stream_manager import stream_manager
 from app.utils.video import configure_ffmpeg_transport
 
@@ -60,9 +62,11 @@ async def lifespan(app: FastAPI):
 
     await stream_manager.startup()
     await retention.startup()
+    camera_health.start()
     try:
         yield
     finally:
+        await camera_health.stop()
         await retention.shutdown()
         await stream_manager.shutdown()
         await alerting.close_http_client()
@@ -88,6 +92,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Outermost last: the request id exists before anything logs or audits.
+app.add_middleware(AuditMiddleware, api_prefix=settings.API_V1_PREFIX)
+app.add_middleware(RequestIdMiddleware)
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    return response
+
 
 register_exception_handlers(app)
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)

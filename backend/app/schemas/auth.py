@@ -95,25 +95,43 @@ class UserRead(BaseModel):
     default_workspace_id: int | None = None
     last_login_at: datetime | None = None
     created_at: datetime
+    # Whether new alerts are emailed to this account (its own switch).
+    notify_email: bool = False
 
 
 class UserProfile(UserRead):
     """`/auth/me` — the user plus everywhere they can go."""
 
     memberships: list[MembershipRead] = Field(default_factory=list)
+    active_workspace_id: int | None = Field(
+        None, description="The workspace every request currently acts in"
+    )
 
 
-class SignupRequest(BaseModel):
+class BootstrapStatus(BaseModel):
+    """What the login page should offer before anyone is signed in."""
+
+    signup_open: bool = Field(
+        description="POST /auth/signup will accept a new account right now"
+    )
+    needs_bootstrap: bool = Field(
+        description="No account exists yet; the first signup becomes superadmin"
+    )
+    password_reset: bool = Field(
+        False,
+        description='"Forgot your password?" by emailed code is set up (SMTP configured)',
+    )
+    notify_email: bool = Field(
+        False,
+        description="Alert emails can go out, so the per-account switch means something",
+    )
+
+
+class _NewAccount(BaseModel):
     username: str = Field(min_length=3, max_length=64)
     email: EmailStr
     password: str
     full_name: str | None = Field(None, max_length=160)
-    workspace_name: str | None = Field(
-        None,
-        max_length=120,
-        description="Name for the workspace created alongside this account. "
-        "Defaults to the username.",
-    )
 
     @field_validator("username")
     @classmethod
@@ -130,6 +148,26 @@ class SignupRequest(BaseModel):
         return _validate_password(value)
 
 
+class SignupRequest(_NewAccount):
+    workspace_name: str | None = Field(
+        None,
+        max_length=120,
+        description="Bootstrap only: name for the first workspace. "
+        'Defaults to "Default Workspace".',
+    )
+
+
+class UserCreate(_NewAccount):
+    """A superadmin creating an account (the platform has no self-service
+    signup past the first account)."""
+
+    role: UserRole = UserRole.USER
+    workspace_id: int | None = Field(
+        None, description="Add the account to this workspace and make it active there"
+    )
+    workspace_role: WorkspaceRole = WorkspaceRole.MEMBER
+
+
 class LoginRequest(BaseModel):
     # One field for both so an operator does not have to remember which they
     # signed up with; the service tries username first, then email.
@@ -144,6 +182,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = Field(None, max_length=160)
     email: EmailStr | None = None
     default_workspace_id: int | None = None
+    notify_email: bool | None = None
 
 
 class PasswordChange(BaseModel):
@@ -156,8 +195,38 @@ class PasswordChange(BaseModel):
         return _validate_password(value)
 
 
-class UserAdminUpdate(BaseModel):
-    """Platform-admin edits to somebody else's account."""
+class ForgotPasswordRequest(BaseModel):
+    # A plain str, not EmailStr: a malformed address gets the same answer as an
+    # unknown one, instead of a 422 that tells the two cases apart.
+    email: str = Field(min_length=3, max_length=255)
 
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=255)
+    code: str = Field(min_length=4, max_length=12)
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_password(cls, value: str) -> str:
+        return _validate_password(value)
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class UserAdminUpdate(BaseModel):
+    """Superadmin edits to somebody else's account."""
+
+    full_name: str | None = Field(None, max_length=160)
     role: UserRole | None = None
     is_active: bool | None = None
+    password: str | None = Field(
+        None, description="Set a new password; signs the user out everywhere"
+    )
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, value: str | None) -> str | None:
+        return None if value is None else _validate_password(value)

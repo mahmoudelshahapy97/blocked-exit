@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Navigate, Link as RouterLink, useNavigate } from "react-router-dom";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -10,12 +10,14 @@ import Stack from "@mui/material/Stack";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 
+import { auth as authApi } from "../../api/endpoints";
+import { useAsync } from "../../hooks/useAsync";
 import { useAuth } from "../../context/AuthContext";
-
-const PASSWORD_HELP =
-  "At least 10 characters, with three of: lowercase, uppercase, digit, symbol.";
+import { Loading } from "../../components/DataStates";
+import { useTranslation } from "react-i18next";
 
 export default function Signup() {
+  const { t } = useTranslation();
   const { signup, error: authError } = useAuth();
   const navigate = useNavigate();
 
@@ -24,6 +26,7 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const { data: bootstrap, error: bootstrapError } = useAsync((opts) => authApi.bootstrap(opts));
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -32,6 +35,11 @@ export default function Signup() {
     setSubmitting(false);
     if (ok) navigate("/", { replace: true });
   };
+
+  if (!bootstrap && !bootstrapError) return <Loading label={t("signup.loading")} height="60vh" />;
+  // Closed signup: there is nothing to fill in here, accounts come from a superadmin.
+  if (bootstrap && !bootstrap.signup_open) return <Navigate to="/login" replace />;
+  const isBootstrap = Boolean(bootstrap?.needs_bootstrap);
 
   return (
     <Box
@@ -48,11 +56,12 @@ export default function Signup() {
         <CardContent sx={{ p: 4 }}>
           <Stack spacing={0.5} sx={{ mb: 3 }}>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>
-              Create an account
+              {isBootstrap ? t("signup.setUpInsighteye") : t("signup.createAnAccount")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              The first account on a fresh deployment becomes its platform
-              administrator and owns the workspace created here.
+              {isBootstrap
+                ? t("signup.firstAccountIsSuperadmin")
+                : t("signup.youWillJoinTheShared")}
             </Typography>
           </Stack>
 
@@ -61,17 +70,17 @@ export default function Signup() {
               {authError && <Alert severity="error">{authError}</Alert>}
 
               <TextField
-                label="Username"
+                label={t("signup.username")}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
                 autoFocus
                 fullWidth
                 required
-                helperText="Letters, digits, dot, underscore, hyphen"
+                helperText={t("signup.lettersDigitsDotUnderscoreHyphen")}
               />
               <TextField
-                label="Email"
+                label={t("signup.email")}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -80,22 +89,24 @@ export default function Signup() {
                 required
               />
               <TextField
-                label="Password"
+                label={t("signup.password")}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 fullWidth
                 required
-                helperText={PASSWORD_HELP}
+                helperText={t("common:password.hintThreeOfFour")}
               />
-              <TextField
-                label="Workspace name"
-                value={workspaceName}
-                onChange={(e) => setWorkspaceName(e.target.value)}
-                fullWidth
-                helperText="Optional — defaults to your username's workspace"
-              />
+              {isBootstrap && (
+                <TextField
+                  label={t("signup.firstWorkspaceName")}
+                  value={workspaceName}
+                  onChange={(e) => setWorkspaceName(e.target.value)}
+                  fullWidth
+                  helperText={t("signup.optionalDefaultsToDefaultWorkspace")}
+                />
+              )}
               <Button
                 type="submit"
                 variant="contained"
@@ -103,12 +114,12 @@ export default function Signup() {
                 disabled={submitting}
                 fullWidth
               >
-                {submitting ? "Creating account…" : "Create account"}
+                {submitting ? t("signup.creatingAccount") : t("signup.createAccount")}
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ textAlign: "center" }}>
-                Already have an account?{" "}
+                {t("signup.alreadyHaveAnAccount")}{" "}
                 <Link component={RouterLink} to="/login">
-                  Sign in
+                  {t("signup.signIn")}
                 </Link>
               </Typography>
             </Stack>

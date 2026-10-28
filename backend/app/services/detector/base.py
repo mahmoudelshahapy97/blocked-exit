@@ -22,6 +22,7 @@ class CameraContext:
 
     id: int
     name: str
+    workspace_id: int | None = None
     location: str | None = None
     strategy: str = "zone_based"
     door_polygon: list[list[float]] | None = None
@@ -38,6 +39,7 @@ class CameraContext:
         return cls(
             id=camera.id,
             name=camera.name,
+            workspace_id=camera.workspace_id,
             location=camera.location,
             strategy=camera.strategy,
             door_polygon=camera.door_polygon,

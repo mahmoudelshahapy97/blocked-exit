@@ -1,3 +1,4 @@
+import i18n from "i18next";
 /** Mirrors app/core/enums.py — keep the two in step. */
 
 export const BLOCKAGE_STATE = {
@@ -14,14 +15,27 @@ export const RISK_LEVEL = {
   CRITICAL: "CRITICAL",
 };
 
+/** The operator workflow: detected -> acknowledged -> resolved. */
+export const EVENT_STATUS = {
+  DETECTED: "detected",
+  ACKNOWLEDGED: "acknowledged",
+  RESOLVED: "resolved",
+};
+
+export const EVENT_STATUS_COLOR = {
+  detected: "error",
+  acknowledged: "warning",
+  resolved: "success",
+};
+
 export const STRATEGY = {
   ZONE_BASED: "zone_based",
   DOOR_CENTRIC: "door_centric",
 };
 
 export const STRATEGY_LABEL = {
-  zone_based: "Zone based",
-  door_centric: "Door centric",
+  get zone_based() { return i18n.t("constants.zoneBased"); },
+  get door_centric() { return i18n.t("constants.doorCentric"); },
 };
 
 export const WORKER_STATE = {
@@ -65,3 +79,5 @@ export const WORKER_COLOR = {
 
 export const POLL_INTERVAL_MS =
   Number(import.meta.env.VITE_POLL_INTERVAL_MS) || 3000;
+
+

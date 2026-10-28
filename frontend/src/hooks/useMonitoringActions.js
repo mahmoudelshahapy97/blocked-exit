@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { errorMessage } from "../api/client";
 import { monitoring } from "../api/endpoints";
 import { useToast } from "../components/Toast";
+import { useTranslation } from "react-i18next";
 
 /**
  * start / stop / restart for one camera's stream worker.
@@ -11,6 +12,7 @@ import { useToast } from "../components/Toast";
  * the whole page.
  */
 export function useMonitoringActions(onDone) {
+  const { t } = useTranslation();
   const toast = useToast();
   const [busyId, setBusyId] = useState(null);
 
@@ -19,7 +21,7 @@ export function useMonitoringActions(onDone) {
       setBusyId(cameraId);
       try {
         const result = await monitoring[action](cameraId);
-        toast.success(result?.message || `Monitoring ${action}ed`);
+        toast.success(result?.message || t(`useMonitoringActions.done_${action}`));
         await onDone?.();
         return result;
       } catch (error) {
@@ -29,7 +31,7 @@ export function useMonitoringActions(onDone) {
         setBusyId(null);
       }
     },
-    [onDone, toast]
+    [onDone, toast, t]
   );
 
   return {

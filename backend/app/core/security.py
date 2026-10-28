@@ -99,7 +99,10 @@ def create_token(
         "token_type": token_type.value,
         "role": role,
         "jti": jti,
-        "iat": issued_at,
+        # Fractional seconds (a NumericDate may be non-integer): the cutoff a
+        # password change writes is compared against this, and whole seconds
+        # cannot order a reset and a login made within the same second.
+        "iat": issued_at.timestamp(),
         "exp": expires_at,
     }
     encoded = jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)

@@ -11,6 +11,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { monitoring } from "../api/endpoints";
 import { POLL_INTERVAL_MS } from "../utils/constants";
+import { useTranslation } from "react-i18next";
 
 // Stream tickets are single-camera and expire after 60s (see
 // POST /monitoring/{id}/stream-ticket) — refresh comfortably before that,
@@ -42,6 +43,7 @@ export function LiveView({
   paused: pausedProp,
   onTogglePause,
 }) {
+  const { t } = useTranslation();
   const [internalPaused, setInternalPaused] = useState(false);
   const paused = pausedProp ?? internalPaused;
   const togglePause = onTogglePause || (() => setInternalPaused((p) => !p));
@@ -93,8 +95,8 @@ export function LiveView({
           // state to show, not a crash.
           setError(
             err?.response?.status === 404
-              ? "Monitoring is not running for this camera."
-              : "No frame available."
+              ? t("liveView.monitoringIsNotRunningFor")
+              : t("liveView.noFrameAvailable")
           );
         }
       } finally {
@@ -109,7 +111,7 @@ export function LiveView({
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [cameraId, annotated, mode, paused, intervalMs, releaseObjectUrl]);
+  }, [cameraId, annotated, mode, paused, intervalMs, releaseObjectUrl, t]);
 
   // --- MJPEG stream ticket refresh -----------------------------------------
   useEffect(() => {
@@ -127,7 +129,7 @@ export function LiveView({
         }
       } catch {
         if (!cancelled) {
-          setError("Could not start the live stream.");
+          setError(t("liveView.couldNotStartTheLive"));
           setLoading(false);
         }
       }
@@ -139,7 +141,7 @@ export function LiveView({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [cameraId, mode, paused]);
+  }, [cameraId, mode, paused, t]);
 
   // Revoking on unmount as well: without it every frame polled during the
   // component's life stays resident until the document is discarded.
@@ -152,7 +154,7 @@ export function LiveView({
       const url = await monitoring.streamUrl(cameraId);
       window.open(url, "_blank", "noopener,noreferrer");
     } catch {
-      setError("Could not start the live stream.");
+      setError(t("liveView.couldNotStartTheLive"));
     }
   };
 
@@ -174,11 +176,11 @@ export function LiveView({
           <Box
             component="img"
             src={streamSrc}
-            alt="Live exit view"
+            alt={t("liveView.liveExitView")}
             onLoad={() => setLoading(false)}
             onError={() => {
               setLoading(false);
-              setError("Live stream unavailable. Is monitoring running?");
+              setError(t("liveView.liveStreamUnavailableIsMonitoring"));
             }}
             sx={{ width: "100%", height: "100%", objectFit: "contain" }}
           />
@@ -187,7 +189,7 @@ export function LiveView({
         <Box
           component="img"
           src={src}
-          alt="Latest annotated frame"
+          alt={t("liveView.latestAnnotatedFrame")}
           sx={{ width: "100%", height: "100%", objectFit: "contain" }}
         />
       ) : null}
@@ -209,7 +211,7 @@ export function LiveView({
 
       {paused && !loading && (
         <Chip
-          label="Paused"
+          label={t("liveView.paused")}
           size="small"
           sx={{ position: "absolute", bgcolor: "rgba(0,0,0,0.65)", color: "grey.100" }}
         />
@@ -227,12 +229,12 @@ export function LiveView({
           p: 0.25,
         }}
       >
-        <Tooltip title={paused ? "Resume" : "Pause"}>
+        <Tooltip title={paused ? t("liveView.resume") : t("liveView.pause")}>
           <IconButton size="small" onClick={handleToggle} sx={{ color: "grey.300" }}>
             {paused ? <PlayArrowIcon fontSize="small" /> : <PauseIcon fontSize="small" />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Open the raw MJPEG stream in a new tab">
+        <Tooltip title={t("liveView.openTheRawMjpegStream")}>
           <IconButton size="small" onClick={openStreamInNewTab} sx={{ color: "grey.300" }}>
             <OpenInNewIcon fontSize="small" />
           </IconButton>
@@ -241,7 +243,7 @@ export function LiveView({
 
       <Chip
         size="small"
-        label={mode === "stream" ? "MJPEG" : `Snapshot · ${Math.round(intervalMs / 1000)}s`}
+        label={mode === "stream" ? t("liveView.mjpeg") : t("liveView.snapshotV0S", { v0: Math.round(intervalMs / 1000) })}
         sx={{
           position: "absolute",
           bottom: 8,

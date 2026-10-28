@@ -26,3 +26,16 @@ os.environ.setdefault("DEVICE", "cpu")
 os.environ.setdefault(
     "SECRET_KEY", "pytest-only-secret-key-never-used-outside-the-test-suite"
 )
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """Every test client looks like one address; the sign-in and reset limits
+    must not carry over from one test to the next."""
+    from app.api.routes import auth
+
+    auth.login_failures._hits.clear()
+    auth.reset_requests._hits.clear()
