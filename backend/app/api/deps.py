@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +36,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     session: SessionDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
 ) -> User:
@@ -68,6 +69,8 @@ async def get_current_user(
     if await auth_service.issued_before_cutoff(session, user.id, claims.get("iat")):
         raise AuthError("Session has been invalidated, please log in again")
 
+    # For the audit middleware, which records who made the request.
+    request.state.audit_user = user
     return user
 
 
@@ -171,6 +174,7 @@ CameraDep = Annotated[Camera, Depends(get_camera_or_404)]
 
 async def get_camera_via_ticket_or_bearer(
     camera_id: int,
+    request: Request,
     session: SessionDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)] = None,
     ticket: str | None = None,
@@ -198,7 +202,7 @@ async def get_camera_via_ticket_or_bearer(
             raise NotFoundError(f"Camera {camera_id} not found")
         return camera
 
-    user = await get_current_user(session, credentials)
+    user = await get_current_user(request, session, credentials)
     ctx = await resolve_workspace(session, user)
     return await get_camera_or_404(camera_id, ctx, session)
 

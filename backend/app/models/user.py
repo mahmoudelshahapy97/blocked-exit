@@ -63,6 +63,10 @@ class User(Base):
         ForeignKey("workspace.id", ondelete="SET NULL"), index=True
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Whether new alerts are emailed to this account (PATCH /auth/me).
+    notify_email: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

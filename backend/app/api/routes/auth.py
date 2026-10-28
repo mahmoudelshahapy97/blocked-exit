@@ -3,7 +3,7 @@ current-user profile."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, status
+from fastapi import APIRouter, BackgroundTasks, Request, status
 from sqlalchemy import select
 
 from app.api.deps import CurrentUserDep, SessionDep, SuperadminDep
@@ -11,10 +11,12 @@ from app.core import security
 from app.core.config import settings
 from app.core.exceptions import (
     AppError,
+    AuthError,
     ForbiddenError,
     NotConfiguredError,
     NotFoundError,
 )
+from app.core.ratelimit import SlidingWindow
 from app.models.user import User
 from app.schemas.auth import (
     BootstrapStatus,
@@ -34,8 +36,9 @@ from app.schemas.auth import (
     UserRead,
     UserUpdate,
 )
+from app.services import audit, otp
 from app.services import auth as auth_service
-from app.services import otp
+from app.services.audit import client_ip
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -53,6 +56,7 @@ async def bootstrap_status(session: SessionDep) -> BootstrapStatus:
         signup_open=signup_open,
         needs_bootstrap=needs_bootstrap,
         password_reset=settings.password_reset_enabled,
+        notify_email=bool(settings.SMTP_HOST and settings.ALERT_EMAIL_FROM),
     )
 
 
@@ -80,10 +84,49 @@ async def signup(payload: SignupRequest, session: SessionDep) -> TokenPair:
     )
 
 
+# Failed sign-ins per (login name, address), and reset mails per address.
+login_failures = SlidingWindow(
+    settings.LOGIN_MAX_FAILURES, settings.LOGIN_FAILURE_WINDOW_S
+)
+reset_requests = SlidingWindow(
+    settings.FORGOT_PASSWORD_MAX_PER_IP, settings.FORGOT_PASSWORD_WINDOW_S
+)
+
+
 @router.post("/login", response_model=TokenPair)
-async def login(payload: LoginRequest, session: SessionDep) -> TokenPair:
-    user = await auth_service.authenticate(
-        session, identifier=payload.username, password=payload.password
+async def login(
+    payload: LoginRequest, request: Request, session: SessionDep
+) -> TokenPair:
+    ip = client_ip(request)
+    user_agent = request.headers.get("user-agent")
+    key = f"{payload.username.strip().lower()}|{ip}"
+    login_failures.check(
+        key, "Too many failed sign-ins. Try again in {seconds} s."
+    )
+    try:
+        user = await auth_service.authenticate(
+            session, identifier=payload.username, password=payload.password
+        )
+    except AuthError:
+        login_failures.hit(key)
+        await audit.record(
+            "auth.login_failed",
+            actor=payload.username.strip()[:120],
+            status="failure",
+            ip=ip,
+            user_agent=user_agent,
+            request_id=getattr(request.state, "request_id", None),
+        )
+        raise
+    login_failures.reset(key)
+    await audit.record(
+        "auth.login",
+        user=user,
+        target_type="user",
+        target_id=user.id,
+        ip=ip,
+        user_agent=user_agent,
+        request_id=getattr(request.state, "request_id", None),
     )
 
     if payload.workspace_id is not None:
@@ -129,7 +172,10 @@ def _require_password_reset() -> None:
 
 @router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(
-    payload: ForgotPasswordRequest, session: SessionDep, background: BackgroundTasks
+    payload: ForgotPasswordRequest,
+    request: Request,
+    session: SessionDep,
+    background: BackgroundTasks,
 ) -> MessageResponse:
     """Mail a one-time reset code to the account with this email.
 
@@ -138,6 +184,12 @@ async def forgot_password(
     after the response, so neither the message nor the timing tells them apart.
     """
     _require_password_reset()
+    # Per address: otherwise this mails every account in turn.
+    ip = client_ip(request) or "?"
+    reset_requests.check(
+        ip, "Too many reset requests from this address. Try again in {seconds} s."
+    )
+    reset_requests.hit(ip)
     user = await auth_service.get_user_by_email(session, payload.email)
     if user is not None and user.is_active:
         code = await otp.issue(session, user.id)
@@ -158,7 +210,7 @@ async def forgot_password(
 
 @router.post("/reset-password", response_model=MessageResponse)
 async def reset_password(
-    payload: ResetPasswordRequest, session: SessionDep
+    payload: ResetPasswordRequest, request: Request, session: SessionDep
 ) -> MessageResponse:
     """Check the emailed code and set the new password in one step.
 
@@ -174,6 +226,16 @@ async def reset_password(
         new_password=payload.new_password,
     ):
         raise AppError("That code is wrong or has expired. Request a new one.")
+    user = await auth_service.get_user_by_email(session, payload.email)
+    await audit.record(
+        "auth.password_reset",
+        user=user,
+        target_type="user",
+        target_id=user.id if user else None,
+        ip=client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        data={"via": "emailed code"},
+    )
     return MessageResponse(message="Password changed. Sign in with the new password.")
 
 

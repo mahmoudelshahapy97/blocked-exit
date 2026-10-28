@@ -22,6 +22,7 @@ async def test_first_signup_bootstraps_a_superadmin_then_signup_closes(client):
         "signup_open": True,
         "needs_bootstrap": True,
         "password_reset": False,
+        "notify_email": False,
     }
 
     response = await client.post(
@@ -47,6 +48,7 @@ async def test_first_signup_bootstraps_a_superadmin_then_signup_closes(client):
         "signup_open": False,
         "needs_bootstrap": False,
         "password_reset": False,
+        "notify_email": False,
     }
     second = await client.post(
         "/auth/signup",

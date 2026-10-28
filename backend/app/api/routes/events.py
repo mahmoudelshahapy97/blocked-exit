@@ -8,6 +8,8 @@ the exit clears (`ended_at`).
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -36,6 +38,7 @@ from app.schemas.event import (
     EventResolve,
     Page,
 )
+from app.services.audit import csv_safe
 from app.services.filters import EventFilters, csv_values, event_filters
 from app.services.retention import unlink_files
 from app.utils.timing import utcnow
@@ -84,6 +87,32 @@ def _enum_list(value: str | None, enum, name: str) -> list[str]:
         raise AppError(f"{name} must be one or more of: {allowed}") from exc
 
 
+def _list_filters(
+    ctx,
+    event_filter,
+    status: str | None,
+    risk_level: str | None,
+    state: BlockageState | None,
+    open_only: bool,
+    since: datetime | None,
+    until: datetime | None,
+) -> list:
+    filters = event_filter.conditions(ctx.workspace.id)
+    if statuses := _enum_list(status, EventStatus, "status"):
+        filters.append(BlockageEvent.status.in_(statuses))
+    if levels := _enum_list(risk_level, RiskLevel, "risk_level"):
+        filters.append(BlockageEvent.risk_level.in_(levels))
+    if state is not None:
+        filters.append(BlockageEvent.peak_state == state.value)
+    if open_only:
+        filters.append(BlockageEvent.ended_at.is_(None))
+    if since is not None:
+        filters.append(BlockageEvent.started_at >= since)
+    if until is not None:
+        filters.append(BlockageEvent.started_at <= until)
+    return filters
+
+
 @router.get("", response_model=Page[BlockageEventRead], dependencies=ViewerDep)
 async def list_events(
     ctx: WorkspaceDep,
@@ -102,19 +131,9 @@ async def list_events(
     since: datetime | None = Query(None, description="Only events started after this"),
     until: datetime | None = None,
 ) -> Page[BlockageEventRead]:
-    filters = event_filter.conditions(ctx.workspace.id)
-    if statuses := _enum_list(status, EventStatus, "status"):
-        filters.append(BlockageEvent.status.in_(statuses))
-    if levels := _enum_list(risk_level, RiskLevel, "risk_level"):
-        filters.append(BlockageEvent.risk_level.in_(levels))
-    if state is not None:
-        filters.append(BlockageEvent.peak_state == state.value)
-    if open_only:
-        filters.append(BlockageEvent.ended_at.is_(None))
-    if since is not None:
-        filters.append(BlockageEvent.started_at >= since)
-    if until is not None:
-        filters.append(BlockageEvent.started_at <= until)
+    filters = _list_filters(
+        ctx, event_filter, status, risk_level, state, open_only, since, until
+    )
 
     order = (
         [_RISK_RANK.desc(), BlockageEvent.peak_risk_score.desc()]
@@ -134,6 +153,47 @@ async def list_events(
         total=int(total or 0),
         limit=pagination.limit,
         offset=pagination.offset,
+    )
+
+
+EXPORT_LIMIT = 50_000
+_EXPORT_COLUMNS = [
+    "id", "started_at", "ended_at", "camera_name", "peak_state", "risk_level",
+    "peak_risk_score",
+    "min_accessibility_pct", "duration_s", "status", "acknowledged_at", "acknowledged_by",
+    "resolved_at", "resolved_by",
+]
+
+
+@router.get("/export.csv", dependencies=ViewerDep)
+async def export_events(
+    ctx: WorkspaceDep,
+    session: SessionDep,
+    event_filter: FiltersDep,
+    status: str | None = Query(None),
+    risk_level: str | None = Query(None),
+    state: BlockageState | None = Query(None),
+    open_only: bool = Query(False),
+    since: datetime | None = Query(None),
+    until: datetime | None = None,
+) -> Response:
+    """The Events list's filters as CSV, newest first, up to 50,000 rows."""
+    filters = _list_filters(
+        ctx, event_filter, status, risk_level, state, open_only, since, until
+    )
+    rows = await session.execute(
+        _event_rows().where(*filters).order_by(BlockageEvent.started_at.desc()).limit(EXPORT_LIMIT)
+    )
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(_EXPORT_COLUMNS)
+    for row in rows.all():
+        data = _read(row).model_dump(mode="json")
+        writer.writerow([data.get(column) for column in _EXPORT_COLUMNS])
+    return Response(
+        content=csv_safe(out.getvalue()),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="events.csv"'},
     )
 
 

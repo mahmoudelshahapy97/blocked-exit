@@ -15,11 +15,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from email.message import EmailMessage
 
+from sqlalchemy import or_, select
+
 from app.core.config import settings
 from app.core.database import session_scope
 from app.core.enums import AlertChannel, AlertStatus, BlockageState
 from app.core.logging import get_logger
 from app.models.alert import Alert
+from app.models.user import User, WorkspaceMember
 from app.utils.timing import utcnow
 
 logger = get_logger(__name__)
@@ -108,13 +111,14 @@ async def dispatch(
     Delivery failures are recorded, never raised — a dead SMTP server must not
     stop the monitoring pipeline.
     """
-    targets = channels or _configured_channels()
+    recipients = await _email_recipients(workspace_id) if settings.SMTP_HOST else []
+    targets = channels or _configured_channels(bool(recipients))
     if not targets:
         logger.info("Alert for camera %s not sent: no channel configured", camera_id)
         return []
 
     results = await asyncio.gather(
-        *(_deliver(channel, payload, snapshot) for channel in targets),
+        *(_deliver(channel, payload, snapshot, recipients) for channel in targets),
         return_exceptions=True,
     )
 
@@ -143,22 +147,53 @@ async def dispatch(
     return rows
 
 
-def _configured_channels() -> list[AlertChannel]:
+def _configured_channels(has_recipients: bool | None = None) -> list[AlertChannel]:
     channels: list[AlertChannel] = []
     if settings.WEBHOOK_URL:
         channels.append(AlertChannel.WEBHOOK)
-    if settings.SMTP_HOST and settings.ALERT_EMAIL_TO:
+    if has_recipients is None:
+        has_recipients = bool(settings.ALERT_EMAIL_TO)
+    if settings.SMTP_HOST and has_recipients:
         channels.append(AlertChannel.EMAIL)
     return channels
 
 
+async def _email_recipients(workspace_id: int | None) -> list[str]:
+    """ALERT_EMAIL_TO, plus every active account that can see the workspace
+    (its members, every superadmin) and switched alert email on."""
+    addresses = list(settings.ALERT_EMAIL_TO)
+    if workspace_id is None:
+        return addresses
+    try:
+        async with session_scope() as session:
+            members = select(WorkspaceMember.user_id).where(
+                WorkspaceMember.workspace_id == workspace_id
+            )
+            rows = await session.execute(
+                select(User.email).where(
+                    User.is_active.is_(True),
+                    User.notify_email.is_(True),
+                    or_(User.role == "superadmin", User.id.in_(members)),
+                )
+            )
+            for (email,) in rows:
+                if email and email not in addresses:
+                    addresses.append(email)
+    except Exception:
+        logger.exception("Could not look up alert email recipients")
+    return addresses
+
+
 async def _deliver(
-    channel: AlertChannel, payload: dict, snapshot: bytes | None
+    channel: AlertChannel,
+    payload: dict,
+    snapshot: bytes | None,
+    recipients: list[str] | None = None,
 ) -> AlertStatus:
     if channel is AlertChannel.WEBHOOK:
         return await _send_webhook(payload, snapshot)
     if channel is AlertChannel.EMAIL:
-        return await _send_email(payload, snapshot)
+        return await _send_email(payload, snapshot, recipients)
     return AlertStatus.SKIPPED
 
 
@@ -236,32 +271,38 @@ async def _send_webhook(payload: dict, snapshot: bytes | None) -> AlertStatus:
     raise last_error if last_error else RuntimeError("webhook delivery failed")
 
 
-async def _send_email(payload: dict, snapshot: bytes | None) -> AlertStatus:
-    if not (settings.SMTP_HOST and settings.ALERT_EMAIL_TO):
+async def _send_email(
+    payload: dict, snapshot: bytes | None, recipients: list[str] | None = None
+) -> AlertStatus:
+    recipients = list(settings.ALERT_EMAIL_TO) if recipients is None else recipients
+    if not (settings.SMTP_HOST and recipients):
         return AlertStatus.SKIPPED
     import aiosmtplib
 
-    message = EmailMessage()
-    message["From"] = settings.ALERT_EMAIL_FROM or (settings.SMTP_USER or "insighteye")
-    message["To"] = ", ".join(settings.ALERT_EMAIL_TO)
-    message["Subject"] = (
-        f"[{payload['state']}] Exit blocked — {payload['camera_name']} "
-        f"({payload['accessibility_pct']}% accessible)"
-    )
-    message.set_content(_email_body(payload))
-    if snapshot:
-        message.add_attachment(
-            snapshot, maintype="image", subtype="jpeg", filename="blocked_exit.jpg"
+    # One message per address: a shared To: line would hand every recipient
+    # the whole list.
+    for address in recipients:
+        message = EmailMessage()
+        sender = settings.ALERT_EMAIL_FROM or settings.SMTP_USER or "insighteye"
+        message["From"] = sender
+        message["To"] = address
+        message["Subject"] = (
+            f"[{payload['state']}] Exit blocked — {payload['camera_name']} "
+            f"({payload['accessibility_pct']}% accessible)"
         )
-
-    await aiosmtplib.send(
-        message,
-        hostname=settings.SMTP_HOST,
-        port=settings.SMTP_PORT,
-        username=settings.SMTP_USER or None,
-        password=settings.SMTP_PASSWORD or None,
-        start_tls=settings.SMTP_USE_TLS,
-    )
+        message.set_content(_email_body(payload))
+        if snapshot:
+            message.add_attachment(
+                snapshot, maintype="image", subtype="jpeg", filename="blocked_exit.jpg"
+            )
+        await aiosmtplib.send(
+            message,
+            hostname=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_USER or None,
+            password=settings.SMTP_PASSWORD or None,
+            start_tls=settings.SMTP_USE_TLS,
+        )
     return AlertStatus.SENT
 
 

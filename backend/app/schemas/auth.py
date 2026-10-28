@@ -95,6 +95,8 @@ class UserRead(BaseModel):
     default_workspace_id: int | None = None
     last_login_at: datetime | None = None
     created_at: datetime
+    # Whether new alerts are emailed to this account (its own switch).
+    notify_email: bool = False
 
 
 class UserProfile(UserRead):
@@ -118,6 +120,10 @@ class BootstrapStatus(BaseModel):
     password_reset: bool = Field(
         False,
         description='"Forgot your password?" by emailed code is set up (SMTP configured)',
+    )
+    notify_email: bool = Field(
+        False,
+        description="Alert emails can go out, so the per-account switch means something",
     )
 
 
@@ -176,6 +182,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = Field(None, max_length=160)
     email: EmailStr | None = None
     default_workspace_id: int | None = None
+    notify_email: bool | None = None
 
 
 class PasswordChange(BaseModel):

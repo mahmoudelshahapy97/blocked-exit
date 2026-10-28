@@ -185,6 +185,22 @@ class Settings(BaseSettings):
     SNAPSHOT_RETENTION_DAYS: int = 30
     SNAPSHOT_MAX_TOTAL_MB: int = 2048
 
+    # --- Notifications, audit, sign-in protection ------------------------
+    # In-app notifications (app/services/inbox.py) and the audit log.
+    NOTIFICATION_WS_PING_S: float = 25.0
+    NOTIFICATION_RETENTION_DAYS: int = 90
+    AUDIT_RETENTION_DAYS: int = 365
+    # A running camera that has been reconnecting or in error this long
+    # raises "camera offline", and "back online" once it recovers.
+    CAMERA_OFFLINE_AFTER_S: float = 60.0
+    CAMERA_HEALTH_INTERVAL_S: float = 15.0
+    # Failed sign-ins per login name + address within the window, then 429.
+    LOGIN_MAX_FAILURES: int = 5
+    LOGIN_FAILURE_WINDOW_S: int = 300
+    # Password-reset mails one address may ask for per window.
+    FORGOT_PASSWORD_MAX_PER_IP: int = 5
+    FORGOT_PASSWORD_WINDOW_S: int = 900
+
     # --- Alerting --------------------------------------------------------
     ALERTS_ENABLED: bool = True
     ALERT_MIN_DURATION_S: float = 10.0
@@ -213,6 +229,14 @@ class Settings(BaseSettings):
         """Accept `a,b,c` from .env as well as a JSON list."""
         if isinstance(value, str):
             return _parse_list(value)
+        return value
+
+    @field_validator("ENABLE_DOCS", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """`ENABLE_DOCS=` (as .env.example ships it) means "the default"."""
+        if isinstance(value, str) and not value.strip():
+            return None
         return value
 
     @field_validator("OBSTACLE_CLASSES", mode="before")

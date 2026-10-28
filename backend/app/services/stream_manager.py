@@ -22,7 +22,7 @@ from app.core.logging import get_logger
 from app.models.camera import Camera
 from app.models.event import BlockageEvent
 from app.schemas.detection import CameraStatus
-from app.services import alerting
+from app.services import alerting, inbox
 from app.services.detector.base import CameraContext
 from app.services.stream_worker import PipelineMessage, StreamWorker
 from app.utils.timing import utcnow
@@ -532,6 +532,22 @@ class StreamManager:
             camera_id=message.camera_id,
             event_id=event_id,
             snapshot=message.snapshot,
+        )
+        # The bell's half: everyone who can see the workspace, once per event.
+        full = payload.get("state") == "FULL"
+        await inbox.notify_workspace(
+            workspace_id,
+            kind="alert",
+            severity="critical" if full else "high",
+            title=(
+                f"Exit {'blocked' if full else 'partly blocked'}: "
+                f"{payload.get('camera_name')}"
+            ),
+            message=f"{payload.get('accessibility_pct')}% accessible.",
+            link=f"/events?event_id={event_id}" if event_id else "/events",
+            camera_id=message.camera_id,
+            camera_name=payload.get("camera_name"),
+            ref_id=f"event-{event_id}" if event_id else None,
         )
 
     def _current_event_id(self, camera_id: int) -> int | None:

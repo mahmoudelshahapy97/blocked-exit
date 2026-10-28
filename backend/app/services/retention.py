@@ -56,6 +56,7 @@ async def purge_old_data() -> PurgeReport:
     try:
         report.alerts_deleted = await _purge_alerts()
         report.events_deleted = await _purge_events()
+        await _purge_feeds()
     except Exception:
         logger.exception("Database retention pass failed")
 
@@ -67,6 +68,17 @@ async def purge_old_data() -> PurgeReport:
         logger.exception("Snapshot retention pass failed")
 
     return report
+
+
+async def _purge_feeds() -> None:
+    """Old notifications and audit entries: both tables only grow otherwise."""
+    from app.services import audit, inbox
+
+    async with session_scope() as session:
+        if settings.NOTIFICATION_RETENTION_DAYS > 0:
+            await inbox.purge_older_than(session, settings.NOTIFICATION_RETENTION_DAYS)
+        if settings.AUDIT_RETENTION_DAYS > 0:
+            await audit.purge_older_than(session, settings.AUDIT_RETENTION_DAYS)
 
 
 async def _purge_alerts() -> int:
